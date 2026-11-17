@@ -238,7 +238,7 @@ def build(run):
     os.replace(tmpm, os.path.join(DATA, 'latest.json'))
     for d in os.listdir(DATA):
         p = os.path.join(DATA, d)
-        if os.path.isdir(p) and d not in (run, 'ecmwf'):
+        if os.path.isdir(p) and d not in (run, 'ecmwf', 'gem'):
             shutil.rmtree(p, ignore_errors=True)
     LOG('Run', run, 'is live')
     state['busy'] = False

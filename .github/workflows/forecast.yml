@@ -18,7 +18,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +49,15 @@ jobs:
         if: steps.ecmwf.outcome == 'failure'
         run: |
           if [ -d /tmp/lastsite/data/ecmwf ]; then rm -rf site/data/ecmwf && cp -r /tmp/lastsite/data/ecmwf site/data/ecmwf; echo "Reused last ECMWF"; fi
+      - name: Download GEM Canada (Premium model)
+        id: gem
+        continue-on-error: true
+        timeout-minutes: 30
+        run: python -u gem_build.py
+      - name: GEM unavailable - reuse the last GEM forecast
+        if: steps.gem.outcome == 'failure'
+        run: |
+          if [ -d /tmp/lastsite/data/gem ]; then rm -rf site/data/gem && cp -r /tmp/lastsite/data/gem site/data/gem; echo "Reused last GEM"; fi
       - name: Publish to the gh-pages branch
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
