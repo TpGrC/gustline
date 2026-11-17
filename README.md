@@ -1,4 +1,4 @@
-# Windlume
+# Windrova
 
 Global weather map by Halewood Systems. Wind, gusts, temperature, rain, clouds, pressure, humidity, thunderstorms and snow, with a 10-day timeline.
 

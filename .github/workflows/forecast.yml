@@ -1,4 +1,4 @@
-name: Update forecast and publish Windlume
+name: Update forecast and publish Windrova
 
 on:
   schedule:
@@ -35,5 +35,5 @@ jobs:
           cd site
           git init -q -b gh-pages
           git add -A
-          git -c user.name="windlume-bot" -c user.email="windlume-bot@users.noreply.github.com" commit -q -m "Forecast $(date -u +%Y-%m-%dT%H:%MZ)"
+          git -c user.name="windrova-bot" -c user.email="windrova-bot@users.noreply.github.com" commit -q -m "Forecast $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
