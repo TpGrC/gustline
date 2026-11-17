@@ -20,7 +20,11 @@ AWS = 'https://noaa-gfs-bdp-pds.s3.amazonaws.com'          # NOAA Open Data on A
 # idx search text for each of our variables (first match wins)
 IDX_ATMOS = {'u': ':UGRD:10 m above ground:', 'v': ':VGRD:10 m above ground:', 't': ':TMP:2 m above ground:',
              'p': ':PRMSL:mean sea level:', 'c': ':TCDC:entire atmosphere', 'r': ':PRATE:surface:', 'g': ':GUST:surface:',
-             'h': ':RH:2 m above ground:', 'k': ':CAPE:surface:', 'n': ':SNOD:surface:'}
+             'h': ':RH:2 m above ground:', 'k': ':CAPE:surface:', 'n': ':SNOD:surface:',
+             # upper air (altitude levels): 850 hPa ~1.5 km, 500 hPa ~5.5 km, 250 hPa ~10 km (jet stream)
+             'u8': ':UGRD:850 mb:', 'v8': ':VGRD:850 mb:', 't8': ':TMP:850 mb:',
+             'u5': ':UGRD:500 mb:', 'v5': ':VGRD:500 mb:', 't5': ':TMP:500 mb:',
+             'u2': ':UGRD:250 mb:', 'v2': ':VGRD:250 mb:'}
 IDX_WAVE = {'w': ':HTSGW:surface:', 'wd': ':DIRPW:surface:', 'wp': ':PERPW:surface:'}
 WAVE_MAX = {'w': 15.0, 'wd': 360.0, 'wp': 25.0}     # stored as 1..255 over sea, 0 = land
 QUERY = ('var_UGRD=on&var_VGRD=on&var_TMP=on&var_PRMSL=on&var_TCDC=on&var_PRATE=on&var_GUST=on'
@@ -32,8 +36,11 @@ WANT = {'u': '10u', 'v': '10v', 't': '2t', 'p': 'prmsl', 'c': 'tcc', 'r': 'prate
         'h': '2r', 'k': 'cape', 'n': 'sde'}
 RANGES = {'u': (-50, 50), 'v': (-50, 50), 't': (-60, 50), 'p': (950, 1060), 'c': (0, 100), 'g': (0, 60),
           'h': (0, 100), 'k': (0, 4000)}
-RANGES.update({k: (-m / 254.0, m) for k, m in WAVE_MAX.items()})   # so that stored 1 -> 0 and 255 -> max
-ALLVARS = list(WANT) + list(IDX_WAVE)
+RANGES.update({k: (-m / 254.0, m) for k, m in WAVE_MAX.items()})
+RANGES.update({'u8': (-60, 60), 'v8': (-60, 60), 'u5': (-90, 90), 'v5': (-90, 90), 'u2': (-110, 110), 'v2': (-110, 110),
+               't8': (-50, 40), 't5': (-70, 10)})
+UPPER = ['u8', 'v8', 't8', 'u5', 'v5', 't5', 'u2', 'v2']   # so that stored 1 -> 0 and 255 -> max
+ALLVARS = list(WANT) + list(IDX_WAVE) + UPPER
 LOG = lambda *a: print(time.strftime('%H:%M:%S'), *a, flush=True)
 state = {'busy': False, 'status': 'starting'}
 
@@ -174,7 +181,7 @@ def encode(name, a):
         q = np.round(np.clip(np.nan_to_num(a), 0, WAVE_MAX[name]) / WAVE_MAX[name] * 254 + 1)
         return np.where(sea, q, 0).astype(np.uint8)
     a = np.nan_to_num(a)
-    if name == 't':
+    if name in ('t', 't8', 't5'):
         a = a - 273.15
     elif name == 'p':
         a = a / 100.0

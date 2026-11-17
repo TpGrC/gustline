@@ -15,7 +15,9 @@ OUT = os.path.join(g.DATA, 'ecmwf')
 LOCK = threading.Lock()          # the GRIB decoder is not thread-safe; downloads still run in parallel
 ATMOS = ['10u', '10v', '2t', '2d', 'msl', 'tcc', '10fg', 'tprate', 'mucape', 'sd', 'rsn']
 WAVE = ['swh', 'mwd', 'pp1d']
-VARS = ['u', 'v', 't', 'h', 'p', 'c', 'g', 'r', 'k', 'n', 'w', 'wd', 'wp']
+VARS = ['u', 'v', 't', 'h', 'p', 'c', 'g', 'r', 'k', 'n', 'w', 'wd', 'wp', 'u8', 'v8', 't8', 'u5', 'v5', 't5', 'u2', 'v2']
+UPPER = {('u', '850'): 'u8', ('v', '850'): 'v8', ('t', '850'): 't8', ('u', '500'): 'u5', ('v', '500'): 'v5', ('t', '500'): 't5',
+         ('u', '250'): 'u2', ('v', '250'): 'v2'}
 
 
 def url(base, run, step, stream):
@@ -80,9 +82,14 @@ def fetch(run, step, stream, params):
     out = {}
     for r in idx:
         p = r.get('param')
-        if p in params and p not in out and r.get('levtype', 'sfc') == 'sfc':
+        key = None
+        if r.get('levtype', 'sfc') == 'sfc' and p in params:
+            key = p
+        elif stream == 'oper' and r.get('levtype') == 'pl':
+            key = UPPER.get((p, str(r.get('levelist'))))
+        if key and key not in out:
             start = int(r['_offset']); end = start + int(r['_length']) - 1
-            out[p] = to_half_degree(None, g.http_range(u, start, end))
+            out[key] = to_half_degree(None, g.http_range(u, start, end))
     return out
 
 
@@ -110,6 +117,8 @@ def fields(run, step):
     if 'swh' in f: o['w'] = f['swh']
     if 'mwd' in f: o['wd'] = f['mwd']
     if 'pp1d' in f: o['wp'] = f['pp1d']
+    for k in UPPER.values():
+        if k in f: o[k] = f[k]
     return o
 
 
