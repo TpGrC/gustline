@@ -1144,16 +1144,17 @@ function openPremium(){
   ${S.premium?`<div class="pfoot"><div class="btn">${t('active')}</div></div>`:`
   <div class="plans"><div class="plan best ${PAYSEL==='y'?'sel':''}" data-plan="y"><span class="tag">${t('bestValue')}</span><div class="nm">${t('planYear')}</div><div class="pr">${eur(19.99)} <small>${t('perYear')}</small></div><div class="sub">${eur(1.67)} ${t('perMonth')}</div></div>
   <div class="plan ${PAYSEL==='m'?'sel':''}" data-plan="m"><div class="nm">${t('planMonth')}</div><div class="pr">${eur(2.49)} <small>${t('perMonth')}</small></div><div class="sub">&nbsp;</div></div></div>
-  <div class="pfoot"><button class="btn" data-buy>${t('upgrade')}</button><p>🔒 ${t('securePay')}</p><p style="margin-top:4px;opacity:.75">${t('madeBy')} Halewood Systems</p></div>`}`;
+  <div class="pfoot">${SALES?`<button class="btn" data-buy>${t('upgrade')}</button><p>🔒 ${t('securePay')}</p>`:`<button class="btn" disabled style="opacity:.8;cursor:default">${t('upgrade')}</button><p>${t('comingSoon')}</p>`}<p style="margin-top:4px;opacity:.75">${t('madeBy')} Halewood Systems</p></div>`}`;
   $('precard').className='card glass pcard';$('premium').classList.add('show');
 }
 $('premium').addEventListener('click',e=>{if(e.target===$('premium')||e.target.closest('[data-x]'))$('premium').classList.remove('show');});
 $('premBtn').onclick=openPremium;
 /* ---------- Stripe payment links ---------- */
+const SALES=false;   // turn on when the business is registered
 const PAY={y:'https://buy.stripe.com/eVq4gs6zz38YehSc3SdUY00',m:'https://buy.stripe.com/00wfZa1ff9xm1v61pedUY01'};
 $('premium').addEventListener('click',e=>{const pl=e.target.closest('[data-plan]');if(pl){PAYSEL=pl.dataset.plan;openPremium();return;}
-  if(e.target.closest('[data-buy]')){const lc={el:'el',es:'es',fr:'fr',de:'de',it:'it',pt:'pt',nl:'nl',pl:'pl',ja:'ja',zh:'zh',ko:'ko',ro:'ro',cs:'cs',hu:'hu',sv:'sv',id:'id',vi:'vi',tr:'tr',ru:'ru'}[LANG]||'auto';location.href=PAY[PAYSEL]+'?locale='+lc;}});
-(()=>{const m=location.search.match(/[?&]paid=(cs_[A-Za-z0-9_]+)/);if(!m)return;
+  if(SALES&&e.target.closest('[data-buy]')){const lc={el:'el',es:'es',fr:'fr',de:'de',it:'it',pt:'pt',nl:'nl',pl:'pl',ja:'ja',zh:'zh',ko:'ko',ro:'ro',cs:'cs',hu:'hu',sv:'sv',id:'id',vi:'vi',tr:'tr',ru:'ru'}[LANG]||'auto';location.href=PAY[PAYSEL]+'?locale='+lc;}});
+(()=>{if(!SALES)return;const m=location.search.match(/[?&]paid=(cs_[A-Za-z0-9_]+)/);if(!m)return;
   S.premium=true;store.set('premium',true);store.set('paidSession',m[1]);
   history.replaceState(null,'',location.pathname+location.hash);setTimeout(()=>toast('✅ '+t('thanksPrem'),{ms:6000}),800);})();
 
