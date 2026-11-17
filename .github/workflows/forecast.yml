@@ -26,8 +26,20 @@ jobs:
           python-version: '3.12'
       - name: Install tools
         run: pip install numpy eccodes
+      - name: Keep the last published forecast (used if NOAA is down)
+        run: |
+          git fetch -q --depth 1 origin gh-pages || true
+          mkdir -p /tmp/lastsite
+          git --work-tree=/tmp/lastsite checkout origin/gh-pages -- data 2>/dev/null || true
+          ls /tmp/lastsite/data 2>/dev/null | head -3 || true
       - name: Download GFS and build map data
+        id: build
+        continue-on-error: true
         run: python -u gustline_server.py --build-once
+      - name: NOAA unavailable - reuse the last forecast
+        if: steps.build.outcome == 'failure'
+        run: |
+          if [ -d /tmp/lastsite/data ]; then rm -rf site/data && cp -r /tmp/lastsite/data site/data; echo "Reused last forecast"; else echo "No previous data" && exit 1; fi
       - name: Publish to the gh-pages branch
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
