@@ -40,6 +40,15 @@ jobs:
         if: steps.build.outcome == 'failure'
         run: |
           if [ -d /tmp/lastsite/data ]; then rm -rf site/data && cp -r /tmp/lastsite/data site/data; echo "Reused last forecast"; else echo "No previous data" && exit 1; fi
+      - name: Download ECMWF (Premium model)
+        id: ecmwf
+        continue-on-error: true
+        timeout-minutes: 20
+        run: python -u ecmwf_build.py
+      - name: ECMWF unavailable - reuse the last ECMWF forecast
+        if: steps.ecmwf.outcome == 'failure'
+        run: |
+          if [ -d /tmp/lastsite/data/ecmwf ]; then rm -rf site/data/ecmwf && cp -r /tmp/lastsite/data/ecmwf site/data/ecmwf; echo "Reused last ECMWF"; fi
       - name: Publish to the gh-pages branch
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
