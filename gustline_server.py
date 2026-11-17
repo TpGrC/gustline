@@ -16,6 +16,13 @@ PORT = 8765
 STEPS = list(range(0, 121, 3)) + list(range(126, 241, 6))   # 3-hourly to day 5, 6-hourly to day 10
 NX, NY = 720, 361                         # 0.5 degree global grid
 FILTER = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p50.pl'
+AWS = 'https://noaa-gfs-bdp-pds.s3.amazonaws.com'          # NOAA Open Data on AWS (same files, much more reliable)
+# idx search text for each of our variables (first match wins)
+IDX_ATMOS = {'u': ':UGRD:10 m above ground:', 'v': ':VGRD:10 m above ground:', 't': ':TMP:2 m above ground:',
+             'p': ':PRMSL:mean sea level:', 'c': ':TCDC:entire atmosphere', 'r': ':PRATE:surface:', 'g': ':GUST:surface:',
+             'h': ':RH:2 m above ground:', 'k': ':CAPE:surface:', 'n': ':SNOD:surface:'}
+IDX_WAVE = {'w': ':HTSGW:surface:', 'wd': ':DIRPW:surface:', 'wp': ':PERPW:surface:'}
+WAVE_MAX = {'w': 15.0, 'wd': 360.0, 'wp': 25.0}     # stored as 1..255 over sea, 0 = land
 QUERY = ('var_UGRD=on&var_VGRD=on&var_TMP=on&var_PRMSL=on&var_TCDC=on&var_PRATE=on&var_GUST=on'
          '&var_RH=on&var_CAPE=on&var_SNOD=on'
          '&lev_10_m_above_ground=on&lev_2_m_above_ground=on&lev_mean_sea_level=on'
@@ -25,6 +32,8 @@ WANT = {'u': '10u', 'v': '10v', 't': '2t', 'p': 'prmsl', 'c': 'tcc', 'r': 'prate
         'h': '2r', 'k': 'cape', 'n': 'sde'}
 RANGES = {'u': (-50, 50), 'v': (-50, 50), 't': (-60, 50), 'p': (950, 1060), 'c': (0, 100), 'g': (0, 60),
           'h': (0, 100), 'k': (0, 4000)}
+RANGES.update({k: (-m / 254.0, m) for k, m in WAVE_MAX.items()})   # so that stored 1 -> 0 and 255 -> max
+ALLVARS = list(WANT) + list(IDX_WAVE)
 LOG = lambda *a: print(time.strftime('%H:%M:%S'), *a, flush=True)
 state = {'busy': False, 'status': 'starting'}
 
@@ -57,12 +66,68 @@ def url_for(run, step, query=QUERY):
     return f'{FILTER}?dir=%2Fgfs.{d}%2F{h}%2Fatmos&file=gfs.t{h}z.pgrb2full.0p50.f{step:03d}&{query}'
 
 
+def aws_path(run, step, kind):
+    d, h = run[:8], run[8:]
+    if kind == 'wave':
+        return f'{AWS}/gfs.{d}/{h}/wave/gridded/gfswave.t{h}z.global.0p25.f{step:03d}.grib2'
+    return f'{AWS}/gfs.{d}/{h}/atmos/gfs.t{h}z.pgrb2full.0p50.f{step:03d}'
+
+
 def run_ready(run):
+    """A run is ready when its last forecast step exists (AWS first, then NOMADS)."""
+    try:
+        idx = http_get(aws_path(run, STEPS[-1], 'atmos') + '.idx', tries=1)
+        if b':PRMSL:' in idx:
+            return True
+    except Exception:
+        pass
     try:
         b = http_get(url_for(run, STEPS[-1], 'var_PRMSL=on&lev_mean_sea_level=on'), tries=1)
         return b[:4] == b'GRIB'
     except Exception:
         return False
+
+
+def http_range(url, start, end, tries=4):
+    for k in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Windrova/1.0 (weather map)',
+                                                       'Range': f'bytes={start}-{end}'})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return r.read()
+        except Exception as e:
+            LOG('  range retry', k + 1, e)
+            time.sleep(3 * (k + 1))
+    raise RuntimeError('range download failed: ' + url)
+
+
+def grib_values(msg):
+    h = eccodes.codes_new_from_message(msg)
+    try:
+        ni, nj = eccodes.codes_get(h, 'Ni'), eccodes.codes_get(h, 'Nj')
+        vals = eccodes.codes_get_values(h).reshape(nj, ni)
+        miss = eccodes.codes_get(h, 'missingValue')
+        if eccodes.codes_get(h, 'jScansPositively'):
+            vals = vals[::-1]
+        vals = np.where(vals == miss, np.nan, vals)
+        return vals
+    finally:
+        eccodes.codes_release(h)
+
+
+def fetch_aws(run, step, kind, wanted):
+    """Download only the GRIB messages we need, using the .idx byte offsets."""
+    url = aws_path(run, step, kind)
+    lines = http_get(url + '.idx').decode().splitlines()
+    offs = [(int(l.split(':')[1]), l) for l in lines if l.count(':') > 3]
+    out = {}
+    for name, key in wanted.items():
+        for n, (start, line) in enumerate(offs):
+            if key in line:
+                end = offs[n + 1][0] - 1 if n + 1 < len(offs) else ''
+                out[name] = grib_values(http_range(url, start, end))
+                break
+    return out
 
 
 def newest_run():
@@ -103,6 +168,12 @@ def decode(blob):
 
 
 def encode(name, a):
+    if name in WAVE_MAX:
+        a = a[::2, ::2] if a.shape == (721, 1440) else a        # 0.25 deg -> our 0.5 deg grid
+        sea = ~np.isnan(a)
+        q = np.round(np.clip(np.nan_to_num(a), 0, WAVE_MAX[name]) / WAVE_MAX[name] * 254 + 1)
+        return np.where(sea, q, 0).astype(np.uint8)
+    a = np.nan_to_num(a)
     if name == 't':
         a = a - 273.15
     elif name == 'p':
@@ -125,23 +196,35 @@ def build(run):
     shutil.rmtree(tmp_dir, ignore_errors=True)
     os.makedirs(tmp_dir)
     LOG('Building GFS run', run)
-    for i, s in enumerate(STEPS):
-        state['status'] = f'downloading {run} step {i + 1}/{len(STEPS)}'
-        f = decode(http_get(url_for(run, s)))
-        for name in WANT:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one_step(s):
+        try:
+            f = fetch_aws(run, s, 'atmos', IDX_ATMOS)
+            src = 'aws'
+        except Exception as e:
+            LOG(f'  f{s:03d} AWS atmos failed ({e}), trying NOMADS')
+            f = decode(http_get(url_for(run, s))); src = 'nomads'
+        try:
+            f.update(fetch_aws(run, s, 'wave', IDX_WAVE))
+        except Exception as e:
+            LOG(f'  f{s:03d} waves unavailable ({e})')
+        for name in ALLVARS:
             arr = f.get(name)
             img = encode(name, arr) if arr is not None else np.zeros((NY, NX), np.uint8)
             if img.shape != (NY, NX):
-                raise RuntimeError(f'unexpected grid {img.shape}')
+                raise RuntimeError(f'unexpected grid {name} {img.shape}')
             png_gray(os.path.join(tmp_dir, f'{name}_{s:03d}.png'), img)
-        LOG(f'  step f{s:03d} ok ({", ".join(sorted(f))})')
-        time.sleep(0.7)
+        LOG(f'  step f{s:03d} ok via {src} ({", ".join(sorted(f))})')
+
+    with ThreadPoolExecutor(6) as ex:
+        list(ex.map(one_step, STEPS))
     shutil.rmtree(out_dir, ignore_errors=True)
     os.replace(tmp_dir, out_dir)
     run_time = dt.datetime.strptime(run, '%Y%m%d%H').replace(tzinfo=dt.timezone.utc)
     meta = {'run': run, 'runTime': int(run_time.timestamp()), 'steps': STEPS, 'nx': NX, 'ny': NY,
             'model': 'GFS 0.5°', 'path': f'data/{run}/', 'ranges': RANGES, 'rain': 'sqrt8', 'snow': 'sqrt2',
-            'vars': sorted(WANT)}
+            'vars': sorted(ALLVARS), 'waves': True}
     tmpm = os.path.join(DATA, 'latest.json.tmp')
     with open(tmpm, 'w') as fh:
         json.dump(meta, fh)
@@ -166,7 +249,7 @@ def has_all_vars():
     try:
         with open(os.path.join(DATA, 'latest.json')) as fh:
             m = json.load(fh)
-        return sorted(m.get('vars', [])) == sorted(WANT) and m.get('steps') == STEPS
+        return sorted(m.get('vars', [])) == sorted(ALLVARS) and m.get('steps') == STEPS
     except Exception:
         return False
 
