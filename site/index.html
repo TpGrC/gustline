@@ -197,6 +197,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 
 <div id="tools">
   <button id="locate" class="glass" aria-label="My location"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button id="fsBtn" class="glass" aria-label="Fullscreen"><svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button id="zin" class="glass" aria-label="Zoom in"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <button id="zout" class="glass" aria-label="Zoom out"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
 </div>
@@ -239,7 +240,10 @@ zh:{name:'中文',privacy:'隐私政策',search:'搜索地点',wind:'风',gusts:
 ja:{name:'日本語',privacy:'プライバシーポリシー',search:'場所を検索',wind:'風',gusts:'突風',temp:'気温',rain:'雨',clouds:'雲',pressure:'気圧',humidity:'湿度',storms:'雷雨',snow:'積雪',particles:'風のアニメーション',settings:'設定',language:'言語',windUnit:'風速の単位',tempUnit:'気温の単位',premium:'プレミアム',premiumTitle:'Windrova プレミアム',premiumSub:'すべての予報を解放。',pf1:'地図で10日間予報',pf2:'雷雨・積雪マップ',pf3:'広告なし',pf4:'独立系アプリを応援',upgrade:'プレミアムにする',comingSoon:'アプリのリリース時に購入可能になります。',preview:'プレミアムを試す（テスト）',active:'プレミアム有効（テスト）',close:'閉じる',loading:'読み込み中…',preparing:'最新の世界予報を準備中…',loadErr:'データを読み込めませんでした。',next48:'今後48時間',days7:'7日間',today:'今日',feels:'体感',locTime:'現地時間',locating:'現在地を検索中…',locBlocked:'位置情報がブロックされています。町を検索してください。',noPlaces:'見つかりません',searchErr:'検索できません',ocean:'海上 / 遠隔地',point:'選択した地点',forecastErr:'予報を読み込めませんでした',newRun:'新しい予報を読み込みました',locked:'プレミアム',clear:'快晴',partly:'晴れ時々曇り',overcast:'曇り',fog:'霧',drizzle:'霧雨',rainD:'雨',snowD:'雪',showers:'にわか雨',snowShowers:'にわか雪',thunder:'雷雨',model:'モデル',waves:"波",wavePeriod:"波の周期",pfW:"波の周期・うねりマップ",pf14:"どこでも14日間予報",planYear:"年額",planMonth:"月額",perYear:"/ 年",perMonth:"/ 月",bestValue:"いちばんお得",share:"共有",copied:"リンクをコピーしました",install:"アプリをインストール",moreDays:"プレミアムで8〜14日目",tagline:"風・天気・波のライブマップ",isobars:"等圧線",favs:"お気に入り",addFav:"お気に入りに追加",sunrise:"日の出",sunset:"日の入り",uv:"UV指数",seaT:"海水温",waveH:"波",recent:"最近"}
 };
 
-const CITIES=[[1,"London",51.51,-0.13],[1,"Paris",48.86,2.35],[1,"Madrid",40.42,-3.70],[1,"Rome",41.90,12.50],[1,"Berlin",52.52,13.40],[1,"Athens",37.98,23.73],[1,"Istanbul",41.01,28.98],[1,"Moscow",55.76,37.62],[1,"Cairo",30.04,31.24],[1,"Lagos",6.52,3.38],[1,"Nairobi",-1.29,36.82],[1,"Johannesburg",-26.20,28.05],[1,"Cape Town",-33.92,18.42],[1,"Kinshasa",-4.32,15.31],[1,"Casablanca",33.57,-7.59],[1,"Algiers",36.75,3.06],[1,"Dubai",25.20,55.27],[1,"Riyadh",24.71,46.68],[1,"Tehran",35.69,51.39],[1,"Baghdad",33.31,44.37],[1,"Karachi",24.86,67.01],[1,"Delhi",28.61,77.21],[1,"Mumbai",19.08,72.88],[1,"Kolkata",22.57,88.36],[1,"Dhaka",23.81,90.41],[1,"Bangkok",13.76,100.50],[1,"Singapore",1.35,103.82],[1,"Jakarta",-6.21,106.85],[1,"Manila",14.60,120.98],[1,"Hong Kong",22.32,114.17],[1,"Shanghai",31.23,121.47],[1,"Beijing",39.90,116.40],[1,"Seoul",37.57,126.98],[1,"Tokyo",35.68,139.69],[1,"Sydney",-33.87,151.21],[1,"Melbourne",-37.81,144.96],[1,"Perth",-31.95,115.86],[1,"Auckland",-36.85,174.76],[1,"Los Angeles",34.05,-118.24],[1,"San Francisco",37.77,-122.42],[1,"Seattle",47.61,-122.33],[1,"Denver",39.74,-104.99],[1,"Chicago",41.88,-87.63],[1,"Houston",29.76,-95.37],[1,"Miami",25.76,-80.19],[1,"New York",40.71,-74.01],[1,"Toronto",43.65,-79.38],[1,"Montreal",45.50,-73.57],[1,"Vancouver",49.28,-123.12],[1,"Mexico City",19.43,-99.13],[1,"Havana",23.11,-82.37],[1,"Bogota",4.71,-74.07],[1,"Lima",-12.05,-77.04],[1,"Santiago",-33.45,-70.67],[1,"Buenos Aires",-34.60,-58.38],[1,"Sao Paulo",-23.55,-46.63],[1,"Rio de Janeiro",-22.91,-43.17],[1,"Reykjavik",64.15,-21.94],[1,"Anchorage",61.22,-149.90],[1,"Honolulu",21.31,-157.86],[2,"Lisbon",38.72,-9.14],[2,"Porto",41.15,-8.61],[2,"Barcelona",41.39,2.17],[2,"Valencia",39.47,-0.38],[2,"Seville",37.39,-5.98],[2,"Bordeaux",44.84,-0.58],[2,"Lyon",45.76,4.84],[2,"Marseille",43.30,5.37],[2,"Brussels",50.85,4.35],[2,"Amsterdam",52.37,4.90],[2,"Dublin",53.35,-6.26],[2,"Edinburgh",55.95,-3.19],[2,"Manchester",53.48,-2.24],[2,"Oslo",59.91,10.75],[2,"Stockholm",59.33,18.07],[2,"Copenhagen",55.68,12.57],[2,"Helsinki",60.17,24.94],[2,"Tallinn",59.44,24.75],[2,"Riga",56.95,24.11],[2,"Vilnius",54.69,25.28],[2,"Warsaw",52.23,21.01],[2,"Prague",50.08,14.44],[2,"Vienna",48.21,16.37],[2,"Budapest",47.50,19.04],[2,"Munich",48.14,11.58],[2,"Hamburg",53.55,9.99],[2,"Frankfurt",50.11,8.68],[2,"Zurich",47.38,8.54],[2,"Milan",45.46,9.19],[2,"Venice",45.44,12.32],[2,"Naples",40.85,14.27],[2,"Palermo",38.12,13.36],[2,"Cagliari",39.22,9.12],[2,"Ajaccio",41.92,8.74],[2,"Valletta",35.90,14.51],[2,"Ljubljana",46.06,14.51],[2,"Zagreb",45.81,15.98],[2,"Split",43.51,16.44],[2,"Sarajevo",43.86,18.41],[2,"Belgrade",44.79,20.45],[2,"Podgorica",42.44,19.26],[2,"Tirana",41.33,19.82],[2,"Skopje",41.99,21.43],[2,"Sofia",42.70,23.32],[2,"Bucharest",44.43,26.10],[2,"Chisinau",47.01,28.86],[2,"Kyiv",50.45,30.52],[2,"Odesa",46.48,30.72],[2,"Minsk",53.90,27.56],[2,"St Petersburg",59.93,30.36],[2,"Thessaloniki",40.64,22.94],[2,"Heraklion",35.34,25.13],[2,"Izmir",38.42,27.14],[2,"Ankara",39.93,32.86],[2,"Antalya",36.90,30.70],[2,"Nicosia",35.19,33.38],[2,"Beirut",33.89,35.50],[2,"Damascus",33.51,36.28],[2,"Tel Aviv",32.09,34.78],[2,"Amman",31.95,35.93],[2,"Tbilisi",41.72,44.79],[2,"Yerevan",40.18,44.51],[2,"Baku",40.41,49.87],[2,"Tunis",36.81,10.18],[2,"Tripoli",32.89,13.19],[2,"Benghazi",32.12,20.07],[2,"Alexandria",31.20,29.92],[2,"Luxor",25.69,32.64],[2,"Khartoum",15.50,32.56],[2,"Addis Ababa",9.03,38.74],[2,"Dakar",14.72,-17.47],[2,"Bamako",12.64,-8.00],[2,"Niamey",13.51,2.13],[2,"Accra",5.60,-0.19],[2,"Luanda",-8.84,13.23],[2,"Dar es Salaam",-6.79,39.21],[2,"Harare",-17.83,31.05],[2,"Antananarivo",-18.88,47.51],[2,"Kuwait",29.38,47.99],[2,"Doha",25.29,51.53],[2,"Muscat",23.59,58.41],[2,"Kabul",34.56,69.21],[2,"Tashkent",41.30,69.24],[2,"Almaty",43.24,76.89],[2,"Lahore",31.55,74.34],[2,"Bangalore",12.97,77.59],[2,"Chennai",13.08,80.27],[2,"Colombo",6.93,79.86],[2,"Kathmandu",27.72,85.32],[2,"Yangon",16.87,96.20],[2,"Hanoi",21.03,105.85],[2,"Ho Chi Minh City",10.82,106.63],[2,"Kuala Lumpur",3.14,101.69],[2,"Taipei",25.03,121.57],[2,"Osaka",34.69,135.50],[2,"Sapporo",43.06,141.35],[2,"Vladivostok",43.12,131.89],[2,"Ulaanbaatar",47.89,106.91],[2,"Novosibirsk",55.01,82.93],[2,"Yekaterinburg",56.84,60.61],[2,"Chengdu",30.57,104.07],[2,"Guangzhou",23.13,113.26],[2,"Brisbane",-27.47,153.03],[2,"Adelaide",-34.93,138.60],[2,"Darwin",-12.46,130.84],[2,"Wellington",-41.29,174.78],[2,"Phoenix",33.45,-112.07],[2,"Las Vegas",36.17,-115.14],[2,"Dallas",32.78,-96.80],[2,"Atlanta",33.75,-84.39],[2,"Washington",38.91,-77.04],[2,"Boston",42.36,-71.06],[2,"Minneapolis",44.98,-93.27],[2,"Calgary",51.05,-114.07],[2,"Winnipeg",49.90,-97.14],[2,"Guatemala City",14.63,-90.51],[2,"Panama",8.98,-79.52],[2,"Caracas",10.48,-66.90],[2,"Quito",-0.18,-78.47],[2,"La Paz",-16.49,-68.12],[2,"Manaus",-3.12,-60.02],[2,"Brasilia",-15.79,-47.88],[2,"Salvador",-12.97,-38.50],[2,"Montevideo",-34.90,-56.16],[2,"Nuuk",64.18,-51.69],[3,"Patras",38.25,21.73],[3,"Larissa",39.64,22.42],[3,"Ioannina",39.66,20.85],[3,"Volos",39.36,22.94],[3,"Kalamata",37.04,22.11],[3,"Chania",35.51,24.02],[3,"Rhodes",36.43,28.22],[3,"Corfu",39.62,19.92],[3,"Alexandroupoli",40.85,25.87],[3,"Kavala",40.94,24.41],[3,"Mytilene",39.11,26.55],[3,"Chios",38.37,26.14],[3,"Mykonos",37.45,25.33],[3,"Santorini",36.42,25.43],[3,"Naxos",37.10,25.38],[3,"Kos",36.89,27.29],[3,"Zakynthos",37.79,20.90],[3,"Kozani",40.30,21.79],[3,"Tripoli",37.51,22.37],[3,"Lamia",38.90,22.43],[3,"Chalkida",38.46,23.60],[3,"Syros",37.45,24.94],[3,"Bursa",40.19,29.06],[3,"Plovdiv",42.15,24.75],[3,"Varna",43.21,27.91],[3,"Bari",41.12,16.87],[3,"Catania",37.50,15.09],[3,"Florence",43.77,11.26],[3,"Turin",45.07,7.69],[3,"Genoa",44.41,8.93],[3,"Nice",43.70,7.27],[3,"Toulouse",43.60,1.44],[3,"Nantes",47.22,-1.55],[3,"Malaga",36.72,-4.42],[3,"Palma",39.57,2.65],[3,"Bilbao",43.26,-2.93],[3,"Cologne",50.94,6.96],[3,"Stuttgart",48.78,9.18],[3,"Krakow",50.06,19.94],[3,"Gdansk",54.35,18.65],[3,"Bratislava",48.15,17.11],[3,"Cluj-Napoca",46.77,23.59],[3,"Lviv",49.84,24.03],[3,"Kharkiv",49.99,36.23],[3,"Rostov",47.24,39.71],[3,"Sevastopol",44.62,33.52],[3,"Trabzon",41.00,39.72],[3,"Adana",37.00,35.32],[3,"Limassol",34.68,33.04],[3,"Glasgow",55.86,-4.25],[3,"Cork",51.90,-8.47],[3,"Bergen",60.39,5.32],[3,"Gothenburg",57.71,11.97],[3,"Tromso",69.65,18.96]];
+let CITIES=[],CITY_N={},CITY_LANG=null,CITY2=false;   // [lat,lon,name] sorted by importance (GeoNames, CC BY 4.0)
+const loadCities=part=>fetch(`geo/cities-${part}.json`).then(r=>r.json()).then(a=>{CITIES=part===1?a.concat(CITIES.slice(5000)):CITIES.slice(0,5000).concat(a);if(part===2)CITY2=true;if(typeof drawCities==='function'&&W)drawCities();}).catch(()=>{});
+const loadCityNames=()=>{if(CITY_LANG===LANG)return;CITY_LANG=LANG;if(LANG==='en'){CITY_N={};if(W)drawCities();return;}
+  fetch(`geo/names-${LANG}.json`).then(r=>r.json()).then(d=>{if(CITY_LANG===LANG){CITY_N=d;if(W)drawCities();}}).catch(()=>{});};
 const API='https://api.open-meteo.com/v1/forecast';
 const DATA_BASE=window.GUST_DATA_BASE||'';
 const FREE_HOURS=120;
@@ -299,16 +303,28 @@ const map=L.map('map',{zoomControl:false,worldCopyJump:true,minZoom:2,maxZoom:11
   .setView(...(()=>{const h=location.hash.slice(1).split(',').map(Number);return h.length>=3&&h.slice(0,3).every(isFinite)?[[h[0],h[1]],h[2]]:[store.get('view',[38,22])||[38,22],store.get('zoom',mobile()?3:4)];})());
 const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
 L.tileLayer(ESRI+'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:16,
-  attribution:'Map &copy; Esri, HERE, Garmin, OSM · Relief &copy; Esri · Model: NOAA GFS · Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a>'}).addTo(map);
+  attribution:'Map &copy; Esri, HERE, Garmin, OSM · Relief &copy; Esri · Model: NOAA GFS · Forecasts: <a href="https://open-meteo.com/">Open-Meteo</a> · Places: <a href="https://www.geonames.org/">GeoNames</a> · Coasts: Natural Earth'}).addTo(map);
 const pane=(n,z,blend)=>{const p=map.createPane(n);p.style.zIndex=z;p.style.pointerEvents='none';if(blend)p.style.mixBlendMode=blend;return p;};
 pane('wx',350);pane('relief',380,'multiply');pane('lines',420);pane('flow',430);pane('labels',450);
 if(!COARSE)L.tileLayer(ESRI+'Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',{pane:'relief',maxZoom:16,maxNativeZoom:13}).addTo(map);
 const lineRenderer=L.canvas({pane:'lines',padding:0.3});
-fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json').then(r=>r.json()).then(tp=>{
-  const mesh=topojson.mesh(tp,tp.objects.countries),lines=[];
-  for(const ln of mesh.coordinates){let cur=[ln[0]];for(let i=1;i<ln.length;i++){if(Math.abs(ln[i][0]-ln[i-1][0])>180){if(cur.length>1)lines.push(cur);cur=[];}cur.push(ln[i]);}if(cur.length>1)lines.push(cur);}
-  L.geoJSON({type:'MultiLineString',coordinates:lines},{pane:'lines',renderer:lineRenderer,interactive:false,smoothFactor:1.5,style:{color:'#0d1218',weight:0.8,opacity:0.6,fill:false}}).addTo(map);
-}).catch(()=>{});
+/* coastlines + borders: Natural Earth 1:50m when zoomed out, 1:10m (much more detailed) from zoom 5 */
+const splitDateline=ml=>{const out=[];for(const ln of ml){let cur=[ln[0]];for(let i=1;i<ln.length;i++){if(Math.abs(ln[i][0]-ln[i-1][0])>180){if(cur.length>1)out.push(cur);cur=[];}cur.push(ln[i]);}if(cur.length>1)out.push(cur);}return out;};
+const GEO={};
+function geoLayer(res){
+  if(GEO[res])return GEO[res];
+  GEO[res]=fetch(`https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-${res}.json`).then(r=>r.json()).then(tp=>{
+    const o=tp.objects.countries,coast=topojson.mesh(tp,o,(a,b)=>a===b),border=topojson.mesh(tp,o,(a,b)=>a!==b);
+    const opt=(c,w,op)=>({pane:'lines',renderer:lineRenderer,interactive:false,smoothFactor:1.2,style:{color:c,weight:w,opacity:op,fill:false}});
+    return L.layerGroup([L.geoJSON({type:'MultiLineString',coordinates:splitDateline(coast.coordinates)},opt('#0b0f14',1.1,0.75)),
+      L.geoJSON({type:'MultiLineString',coordinates:splitDateline(border.coordinates)},Object.assign(opt('#0b0f14',0.8,0.55),{style:{color:'#0b0f14',weight:0.8,opacity:0.55,dashArray:'3 2',fill:false}}))]);
+  });
+  return GEO[res];
+}
+let geoCur=null;
+function updateGeoLines(){const res=map.getZoom()>=5?'10m':'50m';if(geoCur===res)return;geoCur=res;
+  geoLayer(res).then(g=>{if(geoCur!==res)return;for(const k in GEO)GEO[k].then(x=>{if(x!==g)map.removeLayer(x);});g.addTo(map);}).catch(()=>{geoCur=null;});}
+map.on('zoomend',updateGeoLines);updateGeoLines();
 
 let W=0,H=0,DPR=1,lastBounds=null;
 const glc=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('wx'));
@@ -470,18 +486,24 @@ function drawFieldCPU(){
 function drawCities(){
   L.DomUtil.setPosition(lc,map.containerPointToLayerPoint([0,0]));
   lctx.setTransform(DPR,0,0,DPR,0,0);lctx.clearRect(0,0,W,H);
-  const z=map.getZoom(),maxTier=z<3?1:z<5?2:3,boxes=[],T=S.cur&&S.cur.t.a;
+  const z=map.getZoom(),boxes=[],T=S.cur&&S.cur.t.a,lim=z<3?700:z<4?2500:z<5?6000:z<6?14000:1e9;
+  if(z>=5&&!CITY2){CITY2=true;loadCities(2);}
+  const b=map.getBounds(),la0=b.getSouth()-1,la1=b.getNorth()+1,lo0=b.getWest()-1,lo1=b.getEast()+1,whole=lo1-lo0>=360;
+  const list=S.favs.map(f=>[f.lat,f.lon,'★ '+f.n,1]);let drawn=0;
+  for(let i=0,n=Math.min(CITIES.length,lim);i<n;i++){const c=CITIES[i];if(c[0]<la0||c[0]>la1)continue;
+    if(!whole){let lo=c[1];while(lo<lo0)lo+=360;while(lo>lo1)lo-=360;if(lo<lo0)continue;}
+    list.push([c[0],c[1],CITY_N[i]||c[2],0]);}
   lctx.textAlign='center';lctx.lineJoin='round';
-  for(const[tier,name,la,lo]of[...S.favs.map(f=>[0,'★ '+f.n,f.lat,f.lon]),...CITIES]){
-    if(tier>maxTier)continue;
+  for(const[la,lo,name,fav]of list){
+    if(drawn>450)break;
     for(const dx of[0,-360,360]){
       const q=map.latLngToContainerPoint([la,lo+dx]);
       if(q.x<-40||q.y<-20||q.x>W+40||q.y>H+20)continue;
       lctx.font='500 11px Inter,system-ui,sans-serif';
       const w=Math.max(lctx.measureText(name).width,22)+8,b=[q.x-w/2,q.y-13,q.x+w/2,q.y+15];
       if(boxes.some(o=>b[0]<o[2]&&b[2]>o[0]&&b[1]<o[3]&&b[3]>o[1]))continue;
-      boxes.push(b);
-      lctx.lineWidth=2.4;lctx.strokeStyle='rgba(8,12,16,.5)';lctx.fillStyle='rgba(255,255,255,.92)';
+      boxes.push(b);drawn++;
+      lctx.lineWidth=2.6;lctx.strokeStyle='rgba(8,12,16,.6)';lctx.fillStyle=fav?'#ffd76a':'rgba(255,255,255,.93)';
       lctx.strokeText(name,q.x,q.y-2);lctx.fillText(name,q.x,q.y-2);
       if(T){const v=samp(T,la,lo);lctx.font='600 11px Inter,system-ui,sans-serif';const s=fmt('temp',v,false)+'°';
         lctx.strokeText(s,q.x,q.y+11);lctx.fillStyle='#fff';lctx.fillText(s,q.x,q.y+11);}
@@ -796,7 +818,9 @@ addEventListener('keydown',e=>{
 });
 
 /* ---------- tools ---------- */
-$('zin').onclick=()=>map.zoomIn();$('zout').onclick=()=>map.zoomOut();
+$('zin').onclick=()=>map.zoomIn();
+$('fsBtn').onclick=()=>{const d=document;if(d.fullscreenElement||d.webkitFullscreenElement)(d.exitFullscreen||d.webkitExitFullscreen).call(d);else{const e=d.documentElement;(e.requestFullscreen||e.webkitRequestFullscreen||(()=>{})).call(e);}};
+if(!(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen))$('fsBtn').style.display='none';$('zout').onclick=()=>map.zoomOut();
 $('locate').onclick=()=>{
   if(!navigator.geolocation)return toast(t('locBlocked'));
   toast(t('locating'),{spin:true});
@@ -813,7 +837,7 @@ function openSettings(){
   <div class="row"><span>${t('particles')}</span><button class="sw ${S.flow?'on':''}" id="sFlow" aria-pressed="${S.flow}"></button></div>
   <div class="row"><span>${t('premium')}${S.premium?'<span class="badge">ON</span>':''}</span><button class="btn gold" style="width:auto;padding:8px 14px" id="sPrem">${S.premium?t('active'):t('upgrade')}</button></div>
   ${installEvt?`<div class="row"><span>${t('install')}</span><button class="btn" style="width:auto;padding:8px 14px;background:var(--acc);color:#fff" id="sInstall">${t('install')}</button></div>`:''}
-  <div class="row"><a href="privacy.html" style="color:var(--acc)">${t('privacy')}</a><span style="color:var(--dim);font-size:11px">Windrova 1.2 · Halewood Systems</span></div>`;
+  <div class="row"><a href="privacy.html" style="color:var(--acc)">${t('privacy')}</a><span style="color:var(--dim);font-size:11px">Windrova 1.3 · Halewood Systems</span></div>`;
   $('settings').classList.add('show');
 }
 $('gear').onclick=openSettings;
@@ -851,7 +875,7 @@ addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;});
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 
 function applyLang(){
-  document.documentElement.lang=LANG;$('q').placeholder=t('search');$('premBtn').classList.toggle('on',S.premium);
+  document.documentElement.lang=LANG;$('q').placeholder=t('search');loadCityNames();$('premBtn').classList.toggle('on',S.premium);
   drawRail();drawLegend();if(S.meta){const i=S.idx;setupTimeline();setIdx(i);}if(S.last)renderPanel(S.last);
 }
 
@@ -873,7 +897,7 @@ window.gustBack=()=>{
   if($('results').style.display==='block'){$('results').style.display='none';return true;}
   return false;
 };
-sizeAll();updateGeo();applyLang();resetParticles();loadMeta();
+sizeAll();updateGeo();applyLang();resetParticles();loadMeta();loadCities(1);
 }
 </script>
 </body>
