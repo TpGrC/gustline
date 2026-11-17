@@ -1,6 +1,6 @@
 // Windrova service worker: makes the site installable and opens instantly.
 // Pages are network-first (always fresh); icons are cached; forecast data is never cached here.
-const C = 'windrova-v9', SHELL = ['/', '/index.html', '/logo.svg', '/icon-192.png', '/manifest.webmanifest'];
+const C = 'windrova-v10', SHELL = ['/', '/index.html', '/logo.svg', '/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== C).map(x => caches.delete(x)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
