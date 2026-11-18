@@ -987,27 +987,33 @@ setInterval(()=>{if(S.eq){EQ.t=0;drawQuakes();}},10*60*1000);
 
 /* ---------- live flights (adsb.lol, ODbL, through our relay) ---------- */
 const FLY={group:null,timer:0,busy:false,hinted:false};
-const planeIcon=(trk,alt)=>L.divIcon({className:'plane',iconSize:[22,22],iconAnchor:[11,11],
-  html:`<svg viewBox="0 0 24 24" width="22" height="22" style="transform:rotate(${trk||0}deg)"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" fill="${alt==='ground'?'#9aa5b1':'#ffd76a'}" stroke="#111" stroke-width=".8"/></svg>`});
+const planeIcon=(trk,sz)=>L.divIcon({className:'plane',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2],
+  html:`<svg viewBox="0 0 24 24" width="${sz}" height="${sz}" style="transform:rotate(${trk||0}deg)"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" fill="#ffd76a" stroke="#111" stroke-width=".8"/></svg>`});
+// keep only one marker per screen cell so icons never pile up
+function thin(items,ll,cell){const seen=new Set(),out=[];for(const x of items){const p=map.latLngToContainerPoint(ll(x)),k=Math.floor(p.x/cell)+':'+Math.floor(p.y/cell);if(p.x<-20||p.y<-20||p.x>innerWidth+20||p.y>innerHeight+20||seen.has(k))continue;seen.add(k);out.push(x);}return out;}
 async function drawFlights(force){
   clearTimeout(FLY.timer);
   if(!S.fly||!S.premium){if(FLY.group){map.removeLayer(FLY.group);FLY.group=null;}return;}
-  if(map.getZoom()<5){if(FLY.group){map.removeLayer(FLY.group);FLY.group=null;}if(force||!FLY.hinted){toast(t('zoomPlanes'),{ms:2500});FLY.hinted=true;}FLY.timer=setTimeout(drawFlights,10000);return;}
+  if(map.getZoom()<6){if(FLY.group){map.removeLayer(FLY.group);FLY.group=null;}if(force||!FLY.hinted){toast(t('zoomPlanes'),{ms:2500});FLY.hinted=true;}FLY.timer=setTimeout(drawFlights,10000);return;}
   if(FLY.busy)return;FLY.busy=true;
   try{
-    const c=map.getCenter(),b=map.getBounds(),nm=Math.min(250,Math.max(30,b.getNorthEast().distanceTo(c)/1852));
-    const j=await fetch(`${RELAY}/flights?lat=${c.lat.toFixed(2)}&lon=${wrapLon(c.lng).toFixed(2)}&dist=${Math.round(nm)}`).then(r=>r.json());
-    const g=L.layerGroup();let n=0;
-    for(const a of j.ac||[]){if(a.lat==null||n>700)continue;n++;
-      const alt=a.alt_baro,altTxt=alt==='ground'?'ground':alt!=null?Math.round(alt*0.3048).toLocaleString(LOC())+' m':'–';
-      L.marker([a.lat,a.lon],{pane:'storms',icon:planeIcon(a.track,alt)}).bindPopup(`<b>${(a.flight||a.r||a.hex||'').trim()}</b>${a.t?` · ${a.t}`:''}<br><small>${altTxt} · ${a.gs!=null?Math.round(a.gs*1.852)+' km/h':''}</small>${a.r?`<br><small>${a.r}</small>`:''}`).addTo(g);}
+    // cover the whole screen: one circle if it fits, otherwise four
+    const b=map.getBounds(),c=map.getCenter(),R=b.getNorthEast().distanceTo(c)/1852;
+    const pts=R<=240?[[c.lat,c.lng,Math.max(30,R)]]:[[.25,.25],[.25,.75],[.75,.25],[.75,.75]].map(([fy,fx])=>[b.getSouth()+(b.getNorth()-b.getSouth())*fy,b.getWest()+(b.getEast()-b.getWest())*fx,Math.min(250,R*0.6)]);
+    const res=await Promise.all(pts.map(([la,lo,nm])=>fetch(`${RELAY}/flights?lat=${la.toFixed(1)}&lon=${wrapLon(lo).toFixed(1)}&dist=${Math.round(nm)}`).then(r=>r.json()).catch(()=>({}))));
+    const byId=new Map();for(const j of res)for(const a of j.ac||[])if(a.lat!=null&&a.alt_baro!=='ground')byId.set(a.hex,a);
+    const z=map.getZoom(),sz=z>=9?22:z>=8?19:z>=7?16:13;
+    const list=thin([...byId.values()].sort((p,q)=>(q.alt_baro||0)-(p.alt_baro||0)),a=>[a.lat,a.lon],sz+4);
+    const g=L.layerGroup();
+    for(const a of list){const alt=a.alt_baro,altTxt=alt!=null?Math.round(alt*0.3048).toLocaleString(LOC())+' m':'–';
+      L.marker([a.lat,a.lon],{pane:'storms',icon:planeIcon(a.track,sz)}).bindPopup(`<b>${(a.flight||a.r||a.hex||'').trim()}</b>${a.t?` · ${a.t}`:''}<br><small>${altTxt} · ${a.gs!=null?Math.round(a.gs*1.852)+' km/h':''}</small>${a.r?`<br><small>${a.r}</small>`:''}`).addTo(g);}
     if(FLY.group)map.removeLayer(FLY.group);FLY.group=S.fly?g.addTo(map):null;
   }catch(e){}finally{FLY.busy=false;}
   FLY.timer=setTimeout(drawFlights,10000);
 }
-map.on('moveend',()=>{if(S.fly&&S.premium){clearTimeout(FLY.timer);FLY.timer=setTimeout(drawFlights,400);}});
+map.on('moveend',()=>{if(S.fly&&S.premium){clearTimeout(FLY.timer);FLY.timer=setTimeout(drawFlights,500);}});
 
-/* ---------- live ships (aisstream.io, through our relay) ---------- */
+/* ---------- live ships (aisstream.io through our relay) ---------- */
 const SHIP={group:null,timer:0,busy:false,hinted:false};
 const shipCol=ty=>ty>=60&&ty<70?'#4da3ff':ty>=70&&ty<80?'#3ad07a':ty>=80&&ty<90?'#ff6b6b':ty===30?'#c08cff':ty>=36&&ty<=37?'#ff9ff3':'#e9eef3';
 const shipIcon=(o)=>{const moving=(o.sog||0)>0.5,rot=(o.hd!=null&&o.hd<360?o.hd:o.cog)||0,c=shipCol(o.ty);
@@ -1015,17 +1021,23 @@ const shipIcon=(o)=>{const moving=(o.sog||0)>0.5,rot=(o.hd!=null&&o.hd<360?o.hd:
 async function drawShips(force){
   clearTimeout(SHIP.timer);
   if(!S.ship||!S.premium){if(SHIP.group){map.removeLayer(SHIP.group);SHIP.group=null;}return;}
-  if(map.getZoom()<6){if(SHIP.group){map.removeLayer(SHIP.group);SHIP.group=null;}if(force||!SHIP.hinted){toast(t('zoomShips'),{ms:2500});SHIP.hinted=true;}SHIP.timer=setTimeout(drawShips,60000);return;}
+  if(map.getZoom()<5){if(SHIP.group){map.removeLayer(SHIP.group);SHIP.group=null;}if(force||!SHIP.hinted){toast(t('zoomShips'),{ms:2500});SHIP.hinted=true;}SHIP.timer=setTimeout(drawShips,60000);return;}
   if(SHIP.busy)return;SHIP.busy=true;
   try{
-    const b=map.getBounds(),q=v=>Math.round(v),s=q(b.getSouth())-1,n=Math.min(s+12,q(b.getNorth())+1),w=q(wrapLon(b.getWest()))-1,e=Math.min(w+16,q(wrapLon(b.getWest())+(b.getEast()-b.getWest()))+1);
-    const j=await fetch(`${RELAY}/ships?s=${s}&w=${w}&n=${n}&e=${Math.min(180,e)}`).then(r=>r.json());
+    // fixed 10° tiles, shared by every visitor, so the ship list keeps growing
+    const b=map.getBounds(),T=10,tiles=[];
+    for(let la=Math.floor(Math.max(-80,b.getSouth())/T)*T;la<Math.min(80,b.getNorth());la+=T)
+      for(let lo=Math.floor(b.getWest()/T)*T;lo<b.getEast();lo+=T){const w=((lo+180)%360+360)%360-180;tiles.push([la,w]);}
+    const res=await Promise.all(tiles.slice(0,9).map(([la,w])=>fetch(`${RELAY}/ships?s=${la}&w=${w}&n=${la+T}&e=${w+T}`).then(r=>r.json()).catch(()=>[])));
+    const all=res.flat().filter(o=>o&&o.la!=null),z=map.getZoom(),now=Date.now();
+    const list=z>=8?all:thin(all.sort((p,q)=>(q.sog||0)-(p.sog||0)),o=>[o.la,o.lo],z>=7?8:11);
     const g=L.layerGroup();
-    for(const o of Array.isArray(j)?j:[]){
-      L.marker([o.la,o.lo],{pane:'storms',icon:shipIcon(o)}).bindPopup(`<b>${o.n||'MMSI '+o.id}</b><br><small>${o.sog!=null?(o.sog*1.852).toFixed(1)+' km/h':''}${o.dst?` → ${o.dst}`:''}</small><br><small>MMSI ${o.id}</small><br><a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${o.id}" target="_blank" rel="noopener">More ↗</a>`).addTo(g);}
+    for(const o of list){const old=now-o.t>20*60000;
+      L.marker([o.la,o.lo],{pane:'storms',icon:shipIcon(o),opacity:old?.55:1}).bindPopup(`<b>${o.n||'MMSI '+o.id}</b><br><small>${o.sog!=null?(o.sog*1.852).toFixed(1)+' km/h':''}${o.dst?` → ${o.dst}`:''}</small><br><small>MMSI ${o.id} · ${Math.max(1,Math.round((now-o.t)/60000))} min ${t('ago')}</small><br><a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${o.id}" target="_blank" rel="noopener">More ↗</a>`).addTo(g);}
     if(SHIP.group)map.removeLayer(SHIP.group);SHIP.group=S.ship?g.addTo(map):null;
-  }catch(e){}finally{SHIP.busy=false;}
-  SHIP.timer=setTimeout(drawShips,60000);
+    // first visit to an empty area: the relay is listening, ask again soon
+    SHIP.timer=setTimeout(drawShips,all.length<20?20000:60000);
+  }catch(e){SHIP.timer=setTimeout(drawShips,60000);}finally{SHIP.busy=false;}
 }
 map.on('moveend',()=>{if(S.ship&&S.premium){clearTimeout(SHIP.timer);SHIP.timer=setTimeout(drawShips,600);}});
 

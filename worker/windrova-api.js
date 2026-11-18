@@ -60,21 +60,25 @@ async function ships(req, env, ctx, s, w, n, e, debug) {
     return cors(req, new Response(JSON.stringify(dbg), { headers: { 'Content-Type': 'application/json' } }));
   }
   if (!env.AISSTREAM_KEY) return cors(req, new Response(JSON.stringify({ error: 'no key' }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
-  const cache = caches.default, key = `https://cache.windrova/ships/${s}/${w}/${n}/${e}`;
-  const fresh = await cache.match(new Request(key + '/fresh'));
-  if (fresh) return cors(req, fresh);
-  const old = await cache.match(new Request(key + '/all'));
-  const list = new Map();
-  if (old) for (const o of await old.json()) if (Date.now() - o.t < 20 * 60 * 1000) list.set(o.id, o);
-  try {
-    const got = await listenAIS(env.AISSTREAM_KEY, [[s, w], [n, e]]);
+  // The free AIS feed is sparse, so each map tile keeps every ship seen in the last 90 minutes
+  // and all visitors share it. Answer at once from what we have; top it up in the background.
+  const cache = caches.default, key = `https://cache.windrova/ships3/${s}/${w}/${n}/${e}`;
+  const KEEP = 90 * 60 * 1000;
+  const load = async () => { const r = await cache.match(new Request(key + '/all')); const m = new Map(); if (r) for (const o of await r.json()) if (Date.now() - o.t < KEEP) m.set(o.id, o); return m; };
+  const refresh = async () => {
+    await cache.put(new Request(key + '/busy'), new Response('1', { headers: { 'Cache-Control': 'public, max-age=45' } }));
+    const got = await listenAIS(env.AISSTREAM_KEY, [[s, w], [n, e]], 15000, 3000);
+    const list = await load();
     for (const [id, o] of got) list.set(id, Object.assign(list.get(id) || {}, o));
-  } catch (err) { if (!list.size) return cors(req, new Response(JSON.stringify({ error: String(err) }), { status: 502 })); }
-  const body = JSON.stringify([...list.values()].filter(o => o.la != null));
-  const mk = ttl => new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } });
-  ctx.waitUntil(cache.put(new Request(key + '/fresh'), mk(60)));
-  ctx.waitUntil(cache.put(new Request(key + '/all'), mk(1800)));
-  return cors(req, mk(60));
+    const arr = [...list.values()].filter(o => o.la != null);
+    await cache.put(new Request(key + '/all'), new Response(JSON.stringify(arr), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=10800' } }));
+    return arr;
+  };
+  const busy = await cache.match(new Request(key + '/busy'));
+  let arr = [...(await load()).values()].filter(o => o.la != null);
+  if (!arr.length && !busy) { try { arr = await refresh(); } catch (err) { } }
+  else if (!busy) ctx.waitUntil(refresh().catch(() => { }));
+  return cors(req, new Response(JSON.stringify(arr), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }));
 }
 
 async function cached(req, ctx, key, upstream, ttl, init = {}) {
@@ -119,7 +123,7 @@ export default {
     if (url.pathname === '/ships') {
       const q = k => Math.round(parseFloat(url.searchParams.get(k)));
       let s = q('s'), w = q('w'), n = q('n'), e = q('e');
-      if (![s, w, n, e].every(isFinite) || n <= s || e <= w || n - s > 12 || e - w > 16) return new Response('bad box (max 12x16 degrees)', { status: 400 });
+      if (![s, w, n, e].every(isFinite) || n <= s || e <= w || n - s > 20 || e - w > 20) return new Response('bad box (max 12x16 degrees)', { status: 400 });
       return ships(req, env, ctx, Math.max(-90, s), Math.max(-180, w), Math.min(90, n), Math.min(180, e), url.searchParams.has('debug'));
     }
 
