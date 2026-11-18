@@ -351,9 +351,11 @@ const levFor=k=>k==='wind'?['','8','5','2']:k==='temp'?['','8','5']:[''];
 const curLev=()=>{const l=S.lev;if(!l||!levFor(S.layer).includes(l)||!S.meta||!S.meta.vars||!S.meta.vars.includes((S.layer==='temp'?'t':'u')+l))return'';return l;};
 /* ---------- map ---------- */
 const COARSE=matchMedia('(pointer:coarse)').matches||innerWidth<=700;
-const map=L.map('map',{zoomControl:false,worldCopyJump:true,minZoom:2,maxZoom:11,maxBounds:[[-88,-Infinity],[88,Infinity]],maxBoundsViscosity:1,fadeAnimation:false})
+const fitZoom=()=>Math.max(2,Math.ceil(Math.log2(Math.max(innerWidth,innerHeight*1.2)/256)*4)/4);   // never show the world twice
+const map=L.map('map',{zoomControl:false,zoomSnap:0.25,minZoom:fitZoom(),maxZoom:11,maxBounds:[[-86,-180],[86,180]],maxBoundsViscosity:1,fadeAnimation:false})
   .setView(...(()=>{const h=location.hash.slice(1).split(',').map(Number);return h.length>=3&&h.slice(0,3).every(isFinite)?[[h[0],h[1]],h[2]]:[store.get('view',[38,22])||[38,22],store.get('zoom',mobile()?3:4)];})());
 map.getContainer().style.background='#1d232b';   // sea
+addEventListener('resize',()=>{map.setMinZoom(fitZoom());if(map.getZoom()<fitZoom())map.setZoom(fitZoom());});
 map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>').addAttribution('<b>Windrova</b> by <a href="https://www.youtube.com/@HalewoodSystems" target="_blank" rel="noopener">Halewood Systems</a> · Models: NOAA GFS, ECMWF (CC BY 4.0) · Forecast: MET Norway (CC BY 4.0) · Places: GeoNames, © OpenStreetMap · Flights: adsb.lol (ODbL) · Ships: aisstream.io · Map: Natural Earth · <a href="/weather/">Cities</a>');
 const pane=(n,z,blend)=>{const p=map.createPane(n);p.style.zIndex=z;p.style.pointerEvents='none';if(blend)p.style.mixBlendMode=blend;return p;};
 pane('land',200);pane('wx',350);pane('relief',380,'multiply');pane('lines',420);pane('flow',430);pane('labels',450);pane('storms',460).style.pointerEvents='auto';
@@ -362,10 +364,15 @@ const lineRenderer=L.canvas({pane:'lines',padding:0.3});
 const splitDateline=ml=>{const out=[];for(const ln of ml){let cur=[ln[0]];for(let i=1;i<ln.length;i++){if(Math.abs(ln[i][0]-ln[i-1][0])>180){if(cur.length>1)out.push(cur);cur=[];}cur.push(ln[i]);}if(cur.length>1)out.push(cur);}return out;};
 const GEO={},LAND={};
 const landRenderer=L.canvas({pane:'land',padding:0.3});
+function unwrapLand(fc){
+  const fix=r=>{if(r.some(p=>p[1]<-60))return r;let off=0;return r.map((p,i)=>{if(i){const d=p[0]+off-(r[i-1][0]+(r[i-1]._o||0));if(d>180)off-=360;else if(d<-180)off+=360;}const q=[p[0]+off,p[1]];p._o=off;return q;});};
+  for(const f of fc.features){const g=f.geometry;if(g.type==='Polygon')g.coordinates=g.coordinates.map(fix);else if(g.type==='MultiPolygon')g.coordinates=g.coordinates.map(pl=>pl.map(fix));}
+  return fc;
+}
 function landLayer(res){
   if(LAND[res])return LAND[res];
   LAND[res]=fetch(`https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-${res}.json`).then(r=>r.json()).then(tp=>
-    L.geoJSON(topojson.feature(tp,tp.objects.land),{pane:'land',renderer:landRenderer,interactive:false,smoothFactor:1.2,style:{stroke:false,fillColor:'#3a4048',fillOpacity:1}}));
+    L.geoJSON(unwrapLand(topojson.feature(tp,tp.objects.land)),{pane:'land',renderer:landRenderer,interactive:false,smoothFactor:1.2,style:{stroke:false,fillColor:'#3a4048',fillOpacity:1}}));
   return LAND[res];
 }
 let landCur=null;
