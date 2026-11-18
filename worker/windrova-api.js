@@ -83,7 +83,7 @@ async function ships(req, env, ctx, s, w, n, e, debug) {
 
 /* ---------- planes: adsb.lol limits how often we may ask, so everyone shares one answer per 1° square,
    and if adsb.lol says "slow down" we keep showing the last good answer ---------- */
-async function flights(req, ctx, la, lo) {
+async function flights(req, env, ctx, la, lo) {
   const cache = caches.default, key = `https://cache.windrova/fl2/${la}/${lo}`;
   const ok = (body, age) => cors(req, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Age': String(age) } }));
   const fresh = await cache.match(new Request(key + '/fresh'));
@@ -92,14 +92,17 @@ async function flights(req, ctx, la, lo) {
   const busy = await cache.match(new Request(key + '/busy'));
   const load = async () => {
     await cache.put(new Request(key + '/busy'), new Response('1', { headers: { 'Cache-Control': 'public, max-age=10' } }));
-    const r = await fetch(`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/250`, { headers: { 'User-Agent': UA } });
+    // FlyItalyADSB (free key, commercial use allowed, CC BY-SA 4.0) first; adsb.lol (ODbL) as backup
+    let r = null;
+    if (env.FLYITALY_KEY) r = await fetch(`https://api.flyitalyadsb.com/v2/lat/${la}/lon/${lo}/dist/460`, { headers: { 'User-Agent': UA, 'X-Api-Key': String(env.FLYITALY_KEY).trim() } }).catch(() => null);
+    if (!r || !r.ok) r = await fetch(`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/250`, { headers: { 'User-Agent': UA } });
     if (!r.ok) {
       // told to slow down: wait a minute before asking again
       await cache.put(new Request(key + '/busy'), new Response('1', { headers: { 'Cache-Control': 'public, max-age=60' } }));
       throw new Error('upstream ' + r.status);
     }
     const body = await r.text();
-    await cache.put(new Request(key + '/fresh'), new Response(body, { headers: { 'Cache-Control': 'public, max-age=15' } }));
+    await cache.put(new Request(key + '/fresh'), new Response(body, { headers: { 'Cache-Control': 'public, max-age=20' } }));
     await cache.put(new Request(key + '/stale'), new Response(body, { headers: { 'Cache-Control': 'public, max-age=900' } }));
     return body;
   };
@@ -142,7 +145,7 @@ export default {
     if (url.pathname === '/flights') {
       const lat = num(url.searchParams.get('lat'), -90, 90), lon = num(url.searchParams.get('lon'), -180, 180);
       if (lat === null || lon === null) return new Response('bad lat/lon', { status: 400 });
-      return flights(req, ctx, Math.round(lat), Math.round(lon));
+      return flights(req, env, ctx, Math.round(lat), Math.round(lon));
     }
 
     if (url.pathname === '/ships') {
