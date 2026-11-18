@@ -364,15 +364,10 @@ const lineRenderer=L.canvas({pane:'lines',padding:0.3});
 const splitDateline=ml=>{const out=[];for(const ln of ml){let cur=[ln[0]];for(let i=1;i<ln.length;i++){if(Math.abs(ln[i][0]-ln[i-1][0])>180){if(cur.length>1)out.push(cur);cur=[];}cur.push(ln[i]);}if(cur.length>1)out.push(cur);}return out;};
 const GEO={},LAND={};
 const landRenderer=L.canvas({pane:'land',padding:0.3});
-function unwrapLand(fc){
-  const fix=r=>{if(r.some(p=>p[1]<-60))return r;let off=0;return r.map((p,i)=>{if(i){const d=p[0]+off-(r[i-1][0]+(r[i-1]._o||0));if(d>180)off-=360;else if(d<-180)off+=360;}const q=[p[0]+off,p[1]];p._o=off;return q;});};
-  for(const f of fc.features){const g=f.geometry;if(g.type==='Polygon')g.coordinates=g.coordinates.map(fix);else if(g.type==='MultiPolygon')g.coordinates=g.coordinates.map(pl=>pl.map(fix));}
-  return fc;
-}
 function landLayer(res){
   if(LAND[res])return LAND[res];
   LAND[res]=fetch(`https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-${res}.json`).then(r=>r.json()).then(tp=>
-    L.geoJSON(unwrapLand(topojson.feature(tp,tp.objects.land)),{pane:'land',renderer:landRenderer,interactive:false,smoothFactor:1.2,style:{stroke:false,fillColor:'#3a4048',fillOpacity:1}}));
+    L.geoJSON(topojson.feature(tp,tp.objects.land),{pane:'land',renderer:landRenderer,interactive:false,smoothFactor:1.2,style:{stroke:false,fillColor:'#3a4048',fillOpacity:1}}));
   return LAND[res];
 }
 let landCur=null;
