@@ -1,6 +1,7 @@
 // Windrova API relay (Cloudflare Worker, free plan).
 // - /met?lat=..&lon=..      MET Norway forecast, identified + cached 10 min (shared by all visitors)
 // - /flights?lat=..&lon=..  live aircraft from adsb.lol (ODbL), cached 10 s
+// - /ships?s=..&w=..&n=..&e=..  live ships from aisstream.io (needs secret AISSTREAM_KEY), merged + cached 60 s
 // - /health                 quick check
 const ALLOW = ['https://windrova.com', 'https://www.windrova.com', 'http://127.0.0.1:8799'];
 const UA = 'Windrova/2.3 (+https://windrova.com; github.com/TpGrC/gustline)';
@@ -11,6 +12,57 @@ function cors(req, res) {
   h.set('Access-Control-Allow-Origin', ALLOW.includes(o) ? o : 'https://windrova.com');
   h.set('Vary', 'Origin');
   return new Response(res.body, { status: res.status, headers: h });
+}
+
+/* ---------- ships: listen to the aisstream.io live feed for a few seconds, merge with what we saw before ---------- */
+async function listenAIS(key, box, ms = 7000, max = 600) {
+  const resp = await fetch('https://stream.aisstream.io/v0/stream', { headers: { Upgrade: 'websocket' } });
+  const ws = resp.webSocket;
+  if (!ws) throw new Error('no websocket');
+  ws.accept();
+  ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [box], FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ShipStaticData'] }));
+  const seen = new Map();
+  await new Promise(done => {
+    const timer = setTimeout(done, ms);
+    const stop = () => { clearTimeout(timer); done(); };
+    ws.addEventListener('message', ev => {
+      try {
+        const m = JSON.parse(typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data));
+        const md = m.MetaData || {}, id = md.MMSI; if (!id) return;
+        const o = seen.get(id) || { id };
+        o.n = (md.ShipName || o.n || '').trim(); o.t = Date.now();
+        const pr = m.Message && (m.Message.PositionReport || m.Message.StandardClassBPositionReport);
+        if (pr) { o.la = +md.latitude.toFixed(4); o.lo = +md.longitude.toFixed(4); o.sog = pr.Sog; o.cog = pr.Cog; o.hd = pr.TrueHeading; }
+        const st = m.Message && m.Message.ShipStaticData;
+        if (st) { o.ty = st.Type; o.dst = (st.Destination || '').trim(); }
+        seen.set(id, o);
+        if (seen.size >= max) stop();
+      } catch (e) { }
+    });
+    ws.addEventListener('close', stop);
+    ws.addEventListener('error', stop);
+  });
+  try { ws.close(); } catch (e) { }
+  return seen;
+}
+
+async function ships(req, env, ctx, s, w, n, e) {
+  if (!env.AISSTREAM_KEY) return cors(req, new Response(JSON.stringify({ error: 'no key' }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+  const cache = caches.default, key = `https://cache.windrova/ships/${s}/${w}/${n}/${e}`;
+  const fresh = await cache.match(new Request(key + '/fresh'));
+  if (fresh) return cors(req, fresh);
+  const old = await cache.match(new Request(key + '/all'));
+  const list = new Map();
+  if (old) for (const o of await old.json()) if (Date.now() - o.t < 20 * 60 * 1000) list.set(o.id, o);
+  try {
+    const got = await listenAIS(env.AISSTREAM_KEY, [[s, w], [n, e]]);
+    for (const [id, o] of got) list.set(id, Object.assign(list.get(id) || {}, o));
+  } catch (err) { if (!list.size) return cors(req, new Response(JSON.stringify({ error: String(err) }), { status: 502 })); }
+  const body = JSON.stringify([...list.values()].filter(o => o.la != null));
+  const mk = ttl => new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } });
+  ctx.waitUntil(cache.put(new Request(key + '/fresh'), mk(60)));
+  ctx.waitUntil(cache.put(new Request(key + '/all'), mk(1800)));
+  return cors(req, mk(60));
 }
 
 async function cached(req, ctx, key, upstream, ttl, init = {}) {
@@ -50,6 +102,13 @@ export default {
       if (lat === null || lon === null) return new Response('bad lat/lon', { status: 400 });
       const la = lat.toFixed(1), lo = lon.toFixed(1);
       return cached(req, ctx, `fl/${la}/${lo}/${dist}`, `https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${dist}`, 10);
+    }
+
+    if (url.pathname === '/ships') {
+      const q = k => Math.round(parseFloat(url.searchParams.get(k)));
+      let s = q('s'), w = q('w'), n = q('n'), e = q('e');
+      if (![s, w, n, e].every(isFinite) || n <= s || e <= w || n - s > 12 || e - w > 16) return new Response('bad box (max 12x16 degrees)', { status: 400 });
+      return ships(req, env, ctx, Math.max(-90, s), Math.max(-180, w), Math.min(90, n), Math.min(180, e));
     }
 
     return new Response('Windrova API', { status: 404 });
