@@ -15,38 +15,50 @@ function cors(req, res) {
 }
 
 /* ---------- ships: listen to the aisstream.io live feed for a few seconds, merge with what we saw before ---------- */
-async function listenAIS(key, box, ms = 7000, max = 600) {
+async function listenAIS(key, box, ms = 8000, max = 600, dbg = null) {
   const resp = await fetch('https://stream.aisstream.io/v0/stream', { headers: { Upgrade: 'websocket' } });
   const ws = resp.webSocket;
-  if (!ws) throw new Error('no websocket');
-  ws.accept();
-  ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [box], FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ShipStaticData'] }));
+  if (dbg) dbg.status = resp.status;
+  if (!ws) throw new Error('no websocket (HTTP ' + resp.status + ')');
   const seen = new Map();
-  await new Promise(done => {
-    const timer = setTimeout(done, ms);
-    const stop = () => { clearTimeout(timer); done(); };
+  const dec = new TextDecoder();
+  const done = new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+    const stop = () => { clearTimeout(timer); resolve(); };
     ws.addEventListener('message', ev => {
       try {
-        const m = JSON.parse(typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data));
+        const d = ev.data;
+        const txt = typeof d === 'string' ? d : dec.decode(d instanceof ArrayBuffer ? new Uint8Array(d) : d);
+        if (dbg) { dbg.events = (dbg.events || 0) + 1; if (!dbg.first) dbg.first = txt.slice(0, 160); dbg.kind = typeof d === 'string' ? 'string' : (d && d.constructor && d.constructor.name); }
+        const m = JSON.parse(txt);
         const md = m.MetaData || {}, id = md.MMSI; if (!id) return;
         const o = seen.get(id) || { id };
         o.n = (md.ShipName || o.n || '').trim(); o.t = Date.now();
         const pr = m.Message && (m.Message.PositionReport || m.Message.StandardClassBPositionReport);
-        if (pr) { o.la = +md.latitude.toFixed(4); o.lo = +md.longitude.toFixed(4); o.sog = pr.Sog; o.cog = pr.Cog; o.hd = pr.TrueHeading; }
+        if (pr) { o.la = +(+md.latitude).toFixed(4); o.lo = +(+md.longitude).toFixed(4); o.sog = pr.Sog; o.cog = pr.Cog; o.hd = pr.TrueHeading; }
         const st = m.Message && m.Message.ShipStaticData;
         if (st) { o.ty = st.Type; o.dst = (st.Destination || '').trim(); }
         seen.set(id, o);
         if (seen.size >= max) stop();
-      } catch (e) { }
+      } catch (e) { if (dbg) dbg.parseErr = String(e); }
     });
-    ws.addEventListener('close', stop);
-    ws.addEventListener('error', stop);
+    ws.addEventListener('close', ev => { if (dbg) { dbg.closeCode = ev.code; dbg.closeReason = ev.reason; } stop(); });
+    ws.addEventListener('error', ev => { if (dbg) dbg.wsErr = String(ev.message || ev); stop(); });
   });
-  try { ws.close(); } catch (e) { }
+  ws.accept();
+  ws.send(JSON.stringify({ APIKey: String(key).trim(), BoundingBoxes: [box], FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ShipStaticData'] }));
+  await done;
+  try { ws.close(1000, 'done'); } catch (e) { }
   return seen;
 }
 
-async function ships(req, env, ctx, s, w, n, e) {
+async function ships(req, env, ctx, s, w, n, e, debug) {
+  if (debug) {
+    const dbg = {};
+    try { const got = await listenAIS(env.AISSTREAM_KEY || '', [[s, w], [n, e]], 8000, 600, dbg); dbg.ships = got.size; } catch (err) { dbg.error = String(err); }
+    dbg.hasKey = !!env.AISSTREAM_KEY;
+    return cors(req, new Response(JSON.stringify(dbg), { headers: { 'Content-Type': 'application/json' } }));
+  }
   if (!env.AISSTREAM_KEY) return cors(req, new Response(JSON.stringify({ error: 'no key' }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
   const cache = caches.default, key = `https://cache.windrova/ships/${s}/${w}/${n}/${e}`;
   const fresh = await cache.match(new Request(key + '/fresh'));
@@ -108,7 +120,7 @@ export default {
       const q = k => Math.round(parseFloat(url.searchParams.get(k)));
       let s = q('s'), w = q('w'), n = q('n'), e = q('e');
       if (![s, w, n, e].every(isFinite) || n <= s || e <= w || n - s > 12 || e - w > 16) return new Response('bad box (max 12x16 degrees)', { status: 400 });
-      return ships(req, env, ctx, Math.max(-90, s), Math.max(-180, w), Math.min(90, n), Math.min(180, e));
+      return ships(req, env, ctx, Math.max(-90, s), Math.max(-180, w), Math.min(90, n), Math.min(180, e), url.searchParams.has('debug'));
     }
 
     return new Response('Windrova API', { status: 404 });
