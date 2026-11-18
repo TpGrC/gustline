@@ -39,6 +39,8 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 #sb .brand span{display:flex;flex-direction:column;line-height:1.05}#sb .brand small{font-size:9px;font-weight:600;letter-spacing:.02em;color:#9fb3c8;margin-top:1px}
 #sb .brand img{display:block;filter:drop-shadow(0 1px 4px rgba(47,109,240,.5))}
 #premBtn{height:42px;display:flex;align-items:center;gap:6px;padding:0 13px;margin-left:auto;font-weight:700;color:#1a1408;background:linear-gradient(135deg,#ffd76a,#f2a93b);border-color:rgba(255,215,106,.6)}
+body:not(.sales) #premBtn{display:none!important}
+body:not(.sales) #donBtn{margin-left:auto}
 #premBtn svg{width:17px;height:17px}
 #premBtn.on{background:var(--panel);color:var(--gold);border-color:var(--line)}
 #shareBtn,#donBtn{width:42px;height:42px;display:grid;place-items:center}#donBtn{text-decoration:none;font-size:18px}
@@ -298,7 +300,9 @@ const t=k=>(I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;
 const LOC=()=>({el:'el-GR',zh:'zh-CN',ja:'ja-JP',pt:'pt-PT',hi:'hi-IN',ko:'ko-KR'}[LANG]||LANG);
 
 /* ---------- state ---------- */
-const S={ship:store.get('ship',false),fly:store.get('fly',false),ltn:store.get('ltn',false),eq:store.get('eq',false),fire:store.get('fire',false),act:store.get('act','beach'),lev:store.get('lev',''),tc:store.get('tc',true),model:store.get('model','gfs'),metas:{},iso:store.get('iso',false),favs:store.get('favs',[])||[],layer:store.get('layer','wind'),flow:store.get('flow',true),premium:store.get('premium',false)||/[?&]premium=1/.test(location.search),
+document.addEventListener('DOMContentLoaded',()=>{if(SALES)document.body.classList.add('sales')});
+const SALES=false;   // Premium off for now: everything is free. Set true when the business is registered.
+const S={ship:store.get('ship',false),fly:store.get('fly',false),ltn:store.get('ltn',false),eq:store.get('eq',false),fire:store.get('fire',false),act:store.get('act','beach'),lev:store.get('lev',''),tc:store.get('tc',true),model:store.get('model','gfs'),metas:{},iso:store.get('iso',false),favs:store.get('favs',[])||[],layer:store.get('layer','wind'),flow:store.get('flow',true),premium:!SALES||store.get('premium',false)||/[?&]premium=1/.test(location.search),
   unit:Object.assign({wind:0,temp:0},store.get('unit',{})),meta:null,idx:0,playing:null,cur:null};
 
 /* ---------- palettes ---------- */
@@ -1174,7 +1178,7 @@ function openSettings(){
   <div class="row"><span>${t('windUnit')}</span><select id="sWind">${opt(UNITS.wind.map(u=>u[0]),S.unit.wind||0)}</select></div>
   <div class="row"><span>${t('tempUnit')}</span><select id="sTemp">${opt(UNITS.temp.map(u=>u[0]),S.unit.temp||0)}</select></div>
   <div class="row"><span>${t('particles')}</span><button class="sw ${S.flow?'on':''}" id="sFlow" aria-pressed="${S.flow}"></button></div>
-  <div class="row"><span>${t('premium')}${S.premium?'<span class="badge">ON</span>':''}</span><button class="btn gold" style="width:auto;padding:8px 14px" id="sPrem">${S.premium?t('active'):t('upgrade')}</button></div>
+  ${SALES?'':'<!--'}<div class="row"><span>${t('premium')}${S.premium?'<span class="badge">ON</span>':''}</span><button class="btn gold" style="width:auto;padding:8px 14px" id="sPrem">${S.premium?t('active'):t('upgrade')}</button></div>${SALES?'':'-->'}
   ${installEvt?`<div class="row"><span>${t('install')}</span><button class="btn" style="width:auto;padding:8px 14px;background:var(--acc);color:#fff" id="sInstall">${t('install')}</button></div>`:''}
   <div class="row"><span>❤️ ${t('donate')}</span><a class="btn" href="https://buy.stripe.com/14AcMY4rr24U6Pqec0dUY02" target="_blank" rel="noopener" style="width:auto;padding:8px 14px;background:#e0446a;color:#fff;text-decoration:none">${t('donate')}</a></div>
   <div class="row"><a href="privacy.html" style="color:var(--acc)">${t('privacy')}</a><span style="color:var(--dim);font-size:11px">Windrova 2.4 · Halewood Systems</span></div>`;
@@ -1203,7 +1207,6 @@ function openPremium(){
 $('premium').addEventListener('click',e=>{if(e.target===$('premium')||e.target.closest('[data-x]'))$('premium').classList.remove('show');});
 $('premBtn').onclick=openPremium;
 /* ---------- Stripe payment links ---------- */
-const SALES=false;   // turn on when the business is registered
 const PAY={y:'https://buy.stripe.com/eVq4gs6zz38YehSc3SdUY00',m:'https://buy.stripe.com/00wfZa1ff9xm1v61pedUY01'};
 $('premium').addEventListener('click',e=>{const pl=e.target.closest('[data-plan]');if(pl){PAYSEL=pl.dataset.plan;openPremium();return;}
   if(SALES&&e.target.closest('[data-buy]')){const lc={el:'el',es:'es',fr:'fr',de:'de',it:'it',pt:'pt',nl:'nl',pl:'pl',ja:'ja',zh:'zh',ko:'ko',ro:'ro',cs:'cs',hu:'hu',sv:'sv',id:'id',vi:'vi',tr:'tr',ru:'ru'}[LANG]||'auto';location.href=PAY[PAYSEL]+'?locale='+lc;}});
