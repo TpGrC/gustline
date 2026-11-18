@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d1117">
 <title>Windrova — Live wind, weather &amp; waves map</title>
-<meta name="author" content="Halewood Systems"><meta name="description" content="Windrova is a fast, free live weather map: wind animation, gusts, rain, temperature, clouds, pressure and sea waves worldwide, 10-day forecasts from ECMWF, GFS and GEM, plus live planes, ships, lightning and earthquakes.">
+<meta name="author" content="Halewood Systems"><meta name="description" content="Windrova is a fast, free live weather map: wind animation, gusts, rain, temperature, clouds, pressure and sea waves worldwide, 10-day forecasts from ECMWF, GFS and GEM, plus live satellite, lightning and earthquakes.">
 <link rel="canonical" href="https://windrova.com/">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Windrova"><meta property="og:url" content="https://windrova.com/">
-<meta property="og:title" content="Windrova — Live wind, weather &amp; waves map"><meta property="og:description" content="Live wind animation, rain, temperature and sea waves worldwide. ECMWF, GFS &amp; GEM models, live planes and ships. Free, in 23 languages.">
+<meta property="og:title" content="Windrova — Live wind, weather &amp; waves map"><meta property="og:description" content="Live wind animation, rain, temperature and sea waves worldwide. ECMWF, GFS &amp; GEM models, live satellite and lightning. Free, in 23 languages.">
 <meta property="og:image" content="https://windrova.com/og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://windrova.com/og-image.png">
 <link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="logo.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -304,7 +304,7 @@ const LOC=()=>({el:'el-GR',zh:'zh-CN',ja:'ja-JP',pt:'pt-PT',hi:'hi-IN',ko:'ko-KR
 /* ---------- state ---------- */
 document.addEventListener('DOMContentLoaded',()=>{if(SALES)document.body.classList.add('sales')});
 const SALES=false;   // Premium off for now: everything is free. Set true when the business is registered.
-const S={ship:store.get('ship',false),fly:store.get('fly',false),ltn:store.get('ltn',false),eq:store.get('eq',false),fire:store.get('fire',false),act:store.get('act','beach'),lev:store.get('lev',''),tc:store.get('tc',true),model:store.get('model','gfs'),metas:{},iso:store.get('iso',false),favs:store.get('favs',[])||[],layer:store.get('layer','wind'),flow:store.get('flow',true),premium:!SALES||store.get('premium',false)||/[?&]premium=1/.test(location.search),
+const S={ship:false,fly:false,ltn:store.get('ltn',false),eq:store.get('eq',false),fire:store.get('fire',false),act:store.get('act','beach'),lev:store.get('lev',''),tc:store.get('tc',true),model:store.get('model','gfs'),metas:{},iso:store.get('iso',false),favs:store.get('favs',[])||[],layer:store.get('layer','wind'),flow:store.get('flow',true),premium:!SALES||store.get('premium',false)||/[?&]premium=1/.test(location.search),
   unit:Object.assign({wind:0,temp:0},store.get('unit',{})),meta:null,idx:0,playing:null,cur:null};
 
 /* ---------- palettes ---------- */
@@ -358,7 +358,7 @@ const map=L.map('map',{zoomControl:false,zoomSnap:0.25,minZoom:fitZoom(),maxZoom
   .setView(...(()=>{const h=location.hash.slice(1).split(',').map(Number);return h.length>=3&&h.slice(0,3).every(isFinite)?[[h[0],h[1]],h[2]]:[store.get('view',[38,22])||[38,22],store.get('zoom',mobile()?3:4)];})());
 map.getContainer().style.background='#1d232b';   // sea
 addEventListener('resize',()=>{map.setMinZoom(fitZoom());if(map.getZoom()<fitZoom())map.setZoom(fitZoom());});
-map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>').addAttribution('<b>Windrova</b> by <a href="https://www.youtube.com/@HalewoodSystems" target="_blank" rel="noopener">Halewood Systems</a> · Models: NOAA GFS, ECMWF (CC BY 4.0) · Forecast: MET Norway (CC BY 4.0) · Places: GeoNames, © OpenStreetMap · Flights: <a href="https://flyitalyadsb.com" target="_blank" rel="noopener">FlyItalyADSB</a> (CC BY-SA 4.0), adsb.lol (ODbL) · Ships: aisstream.io · Map: Natural Earth · <a href="/weather/">Cities</a>');
+map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>').addAttribution('<b>Windrova</b> by <a href="https://www.youtube.com/@HalewoodSystems" target="_blank" rel="noopener">Halewood Systems</a> · Models: NOAA GFS, ECMWF (CC BY 4.0) · Forecast: MET Norway (CC BY 4.0) · Places: GeoNames, © OpenStreetMap · Map: Natural Earth · <a href="/weather/">Cities</a>');
 const pane=(n,z,blend)=>{const p=map.createPane(n);p.style.zIndex=z;p.style.pointerEvents='none';if(blend)p.style.mixBlendMode=blend;return p;};
 pane('land',200);pane('wx',350);pane('relief',380,'multiply');pane('lines',420);pane('flow',430);pane('labels',450);pane('storms',460).style.pointerEvents='auto';
 const lineRenderer=L.canvas({pane:'lines',padding:0.3});
@@ -699,7 +699,7 @@ map.on('moveend zoomend resize',()=>{
 });
 
 /* ---------- UI: rail, legend ---------- */
-const OV={shipBtn:['ship',()=>drawShips(true)],flyBtn:['fly',()=>drawFlights(true)],ltnBtn:['ltn',()=>drawLightning()],eqBtn:['eq',()=>drawQuakes()],fireBtn:['fire',()=>drawFires()]};
+const OV={ltnBtn:['ltn',()=>drawLightning()],eqBtn:['eq',()=>drawQuakes()],fireBtn:['fire',()=>drawFires()]};
 setTimeout(()=>{let f=0;for(const [b,[k]] of Object.entries(OV))if(S[k]){if(f){S[k]=false;store.set(k,false);}f=1;}},0);
 const anyOv=()=>Object.values(OV).some(([k])=>S[k]);
 function setOv(id){ // only one overlay at a time; same button again turns it off
@@ -713,8 +713,6 @@ function drawRail(){
     +(['wind','wave','period'].includes(LAYERS[S.layer].kind)?`<hr><button id="flowBtn" class="${S.flow?'on':''}" aria-pressed="${S.flow}">${svg('<path d="M3 7c4-3 8 3 12 0s4-2 6-1M3 13c4-3 8 3 12 0s4-2 6-1M3 19c4-3 8 3 12 0"/>')}<span class="lbl">${t('particles')}</span></button>`:'<hr>')
     +`<button id="isoBtn" class="${S.iso?'on':''}" aria-pressed="${S.iso}">${svg('<path d="M3 17c3-5 6-7 9-7s6 2 9 7M5 13c2-4 4-6 7-6s5 2 7 6M8 9c1-2 2-3 4-3s3 1 4 3"/>')}<span class="lbl">${t('isobars')}</span></button>`
     +`<button id="tcBtn" class="${S.tc?'on':''}" aria-pressed="${S.tc}">${svg('<path d="M12 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0M12 3c-5 0-8 3.5-8 7 3-3 6-3 8-2M12 21c5 0 8-3.5 8-7-3 3-6 3-8 2"/>')}<span class="lbl">${t('cyclones')}${TC.n?` (${TC.n})`:''}</span></button>`
-    +`<button id="shipBtn" class="${S.ship&&S.premium?'on':''}" aria-pressed="${S.ship&&S.premium}">${svg('<path d="M3 17l2 4h14l2-4M5 17V11l7-3 7 3v6M12 8V3M9 5h6"/>')}<span class="lbl">${t('ships')}</span>${S.premium?'':`<span class="lock">${t('locked').toUpperCase()}</span>`}</button>`
-    +`<button id="flyBtn" class="${S.fly&&S.premium?'on':''}" aria-pressed="${S.fly&&S.premium}">${svg('<path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/>')}<span class="lbl">${t('planes')}</span>${S.premium?'':`<span class="lock">${t('locked').toUpperCase()}</span>`}</button>`
     +`<button id="ltnBtn" class="${S.ltn&&S.premium?'on':''}" aria-pressed="${S.ltn&&S.premium}">${svg('<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>')}<span class="lbl">${t('lightning')}</span>${S.premium?'':`<span class="lock">${t('locked').toUpperCase()}</span>`}</button>`
     +`<button id="eqBtn" class="${S.eq&&S.premium?'on':''}" aria-pressed="${S.eq&&S.premium}">${svg('<path d="M2 12h4l2-5 3 10 3-14 3 13 2-4h3"/>')}<span class="lbl">${t('quakes')}</span>${S.premium?'':`<span class="lock">${t('locked').toUpperCase()}</span>`}</button>`
     +`<button id="fireBtn" class="${S.fire&&S.premium?'on':''}" aria-pressed="${S.fire&&S.premium}">${svg('<path d="M12 22c4 0 7-3 7-7 0-5-5-7-4-13-3 2-5 5-5 8-1-1-2-2-2-4-2 2-3 5-3 9 0 4 3 7 7 7z"/>')}<span class="lbl">${t('fires')}</span>${S.premium?'':`<span class="lock">${t('locked').toUpperCase()}</span>`}</button>`;
