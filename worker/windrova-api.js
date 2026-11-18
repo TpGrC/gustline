@@ -25,10 +25,10 @@ async function listenAIS(key, box, ms = 8000, max = 600, dbg = null) {
   const done = new Promise(resolve => {
     const timer = setTimeout(resolve, ms);
     const stop = () => { clearTimeout(timer); resolve(); };
-    ws.addEventListener('message', ev => {
+    ws.addEventListener('message', async ev => {
       try {
         const d = ev.data;
-        const txt = typeof d === 'string' ? d : dec.decode(d instanceof ArrayBuffer ? new Uint8Array(d) : d);
+        const txt = typeof d === 'string' ? d : dec.decode(new Uint8Array(d.arrayBuffer ? await d.arrayBuffer() : d));
         if (dbg) { dbg.events = (dbg.events || 0) + 1; if (!dbg.first) dbg.first = txt.slice(0, 160); dbg.kind = typeof d === 'string' ? 'string' : (d && d.constructor && d.constructor.name); }
         const m = JSON.parse(txt);
         const md = m.MetaData || {}, id = md.MMSI; if (!id) return;
