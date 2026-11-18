@@ -1018,10 +1018,9 @@ async function drawFlights(force){
   if(map.getZoom()<6){if(FLY.group){map.removeLayer(FLY.group);FLY.group=null;}if(force||!FLY.hinted){toast(t('zoomPlanes'),{ms:2500});FLY.hinted=true;}FLY.timer=setTimeout(drawFlights,10000);return;}
   if(FLY.busy)return;FLY.busy=true;
   try{
-    // cover the whole screen: one circle if it fits, otherwise four
-    const b=map.getBounds(),c=map.getCenter(),R=b.getNorthEast().distanceTo(c)/1852;
-    const pts=R<=240?[[c.lat,c.lng,Math.max(30,R)]]:[[.25,.25],[.25,.75],[.75,.25],[.75,.75]].map(([fy,fx])=>[b.getSouth()+(b.getNorth()-b.getSouth())*fy,b.getWest()+(b.getEast()-b.getWest())*fx,Math.min(250,R*0.6)]);
-    const res=await Promise.all(pts.map(([la,lo,nm])=>fetch(`${RELAY}/flights?lat=${la.toFixed(1)}&lon=${wrapLon(lo).toFixed(1)}&dist=${Math.round(nm)}`).then(r=>r.json()).catch(()=>({}))));
+    // one shared request per 1° square (the relay shares it between all visitors)
+    const c=map.getCenter();
+    const res=[await fetch(`${RELAY}/flights?lat=${Math.round(c.lat)}&lon=${Math.round(wrapLon(c.lng))}`).then(r=>r.json()).catch(()=>({}))];
     const byId=new Map();for(const j of res)for(const a of j.ac||[])if(a.lat!=null&&a.alt_baro!=='ground')byId.set(a.hex,a);
     const z=map.getZoom(),sz=z>=9?22:z>=8?19:z>=7?16:13;
     const list=thin([...byId.values()].sort((p,q)=>(q.alt_baro||0)-(p.alt_baro||0)),a=>[a.lat,a.lon],sz+4);
@@ -1030,7 +1029,7 @@ async function drawFlights(force){
       L.marker([a.lat,a.lon],{pane:'storms',icon:planeIcon(a.track,sz)}).bindPopup(`<b>${(a.flight||a.r||a.hex||'').trim()}</b>${a.t?` · ${a.t}`:''}<br><small>${altTxt} · ${a.gs!=null?Math.round(a.gs*1.852)+' km/h':''}</small>${a.r?`<br><small>${a.r}</small>`:''}`).addTo(g);}
     if(FLY.group)map.removeLayer(FLY.group);FLY.group=S.fly?g.addTo(map):null;
   }catch(e){}finally{FLY.busy=false;}
-  FLY.timer=setTimeout(drawFlights,10000);
+  FLY.timer=setTimeout(drawFlights,15000);
 }
 map.on('moveend',()=>{if(S.fly&&S.premium){clearTimeout(FLY.timer);FLY.timer=setTimeout(drawFlights,500);}});
 

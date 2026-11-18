@@ -81,6 +81,33 @@ async function ships(req, env, ctx, s, w, n, e, debug) {
   return cors(req, new Response(JSON.stringify(arr), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }));
 }
 
+/* ---------- planes: adsb.lol limits how often we may ask, so everyone shares one answer per 1° square,
+   and if adsb.lol says "slow down" we keep showing the last good answer ---------- */
+async function flights(req, ctx, la, lo) {
+  const cache = caches.default, key = `https://cache.windrova/fl2/${la}/${lo}`;
+  const ok = (body, age) => cors(req, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Age': String(age) } }));
+  const fresh = await cache.match(new Request(key + '/fresh'));
+  if (fresh) return ok(await fresh.text(), 0);
+  const stale = await cache.match(new Request(key + '/stale'));
+  const busy = await cache.match(new Request(key + '/busy'));
+  const load = async () => {
+    await cache.put(new Request(key + '/busy'), new Response('1', { headers: { 'Cache-Control': 'public, max-age=10' } }));
+    const r = await fetch(`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/250`, { headers: { 'User-Agent': UA } });
+    if (!r.ok) {
+      // told to slow down: wait a minute before asking again
+      await cache.put(new Request(key + '/busy'), new Response('1', { headers: { 'Cache-Control': 'public, max-age=60' } }));
+      throw new Error('upstream ' + r.status);
+    }
+    const body = await r.text();
+    await cache.put(new Request(key + '/fresh'), new Response(body, { headers: { 'Cache-Control': 'public, max-age=15' } }));
+    await cache.put(new Request(key + '/stale'), new Response(body, { headers: { 'Cache-Control': 'public, max-age=900' } }));
+    return body;
+  };
+  if (stale) { if (!busy) ctx.waitUntil(load().catch(() => { })); return ok(await stale.text(), 1); }
+  if (busy) return ok('{"ac":[]}', 2);
+  try { return ok(await load(), 0); } catch (e) { return ok('{"ac":[]}', 3); }
+}
+
 async function cached(req, ctx, key, upstream, ttl, init = {}) {
   const cache = caches.default;
   const ck = new Request('https://cache.windrova/' + key);
@@ -114,10 +141,8 @@ export default {
 
     if (url.pathname === '/flights') {
       const lat = num(url.searchParams.get('lat'), -90, 90), lon = num(url.searchParams.get('lon'), -180, 180);
-      const dist = Math.min(250, Math.max(10, parseInt(url.searchParams.get('dist') || '150')));
       if (lat === null || lon === null) return new Response('bad lat/lon', { status: 400 });
-      const la = lat.toFixed(1), lo = lon.toFixed(1);
-      return cached(req, ctx, `fl/${la}/${lo}/${dist}`, `https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${dist}`, 10);
+      return flights(req, ctx, Math.round(lat), Math.round(lon));
     }
 
     if (url.pathname === '/ships') {
