@@ -682,10 +682,16 @@ map.on('moveend zoomend resize',()=>{
 });
 
 /* ---------- UI: rail, legend ---------- */
+const OV={shipBtn:['ship',()=>drawShips(true)],flyBtn:['fly',()=>drawFlights(true)],ltnBtn:['ltn',()=>drawLightning()],eqBtn:['eq',()=>drawQuakes()],fireBtn:['fire',()=>drawFires()]};
+setTimeout(()=>{let f=0;for(const [b,[k]] of Object.entries(OV))if(S[k]){if(f){S[k]=false;store.set(k,false);}f=1;}},0);
+const anyOv=()=>Object.values(OV).some(([k])=>S[k]);
+function setOv(id){ // only one overlay at a time; same button again turns it off
+  for(const [b,[k,draw]] of Object.entries(OV)){const v=b===id?!S[k]:false;if(S[k]!==v){S[k]=v;store.set(k,v);draw();}}
+}
 const svg=p=>`<svg class="i" viewBox="0 0 24 24">${p}</svg>`;
 function drawRail(){
   $('rail').innerHTML=Object.entries(LAYERS).filter(([k,L])=>!L.hidden&&layerOK(L)).map(([k,L])=>
-    `<button data-l="${k}" class="${k===S.layer?'on':''}" aria-pressed="${k===S.layer}">${svg(L.icon)}<span class="lbl">${t(L.k)}</span>${L.premium&&!S.premium?`<span class="lock">${t('locked').toUpperCase()}</span>`:''}</button>`).join('')
+    `<button data-l="${k}" class="${k===S.layer&&!anyOv()?'on':''}" aria-pressed="${k===S.layer&&!anyOv()}">${svg(L.icon)}<span class="lbl">${t(L.k)}</span>${L.premium&&!S.premium?`<span class="lock">${t('locked').toUpperCase()}</span>`:''}</button>`).join('')
     +(levFor(S.layer).length>1&&S.meta&&S.meta.vars&&S.meta.vars.includes('u8')?`<hr><div class="alt" title="${t('altitude')}">${LEVELS.filter(x=>levFor(S.layer).includes(x[0])).map(x=>`<button data-lev="${x[0]}" class="${curLev()===x[0]?'on':''}">${x[0]?x[1]:t('surface')}${x[2]?`<small>${x[2]}</small>`:''}</button>`).join('')}</div>`:'')
     +(['wind','wave','period'].includes(LAYERS[S.layer].kind)?`<hr><button id="flowBtn" class="${S.flow?'on':''}" aria-pressed="${S.flow}">${svg('<path d="M3 7c4-3 8 3 12 0s4-2 6-1M3 13c4-3 8 3 12 0s4-2 6-1M3 19c4-3 8 3 12 0"/>')}<span class="lbl">${t('particles')}</span></button>`:'<hr>')
     +`<button id="isoBtn" class="${S.iso?'on':''}" aria-pressed="${S.iso}">${svg('<path d="M3 17c3-5 6-7 9-7s6 2 9 7M5 13c2-4 4-6 7-6s5 2 7 6M8 9c1-2 2-3 4-3s3 1 4 3"/>')}<span class="lbl">${t('isobars')}</span></button>`
@@ -700,14 +706,10 @@ $('rail').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.lev!==undefined){S.lev=b.dataset.lev;store.set('lev',S.lev);drawLegend();showStep(S.idx);}
   else if(b.id==='flowBtn'){S.flow=!S.flow;store.set('flow',S.flow);}
-  else if(b.id==='shipBtn'){if(!S.premium)return openPremium();S.ship=!S.ship;store.set('ship',S.ship);drawShips(true);}
-  else if(b.id==='flyBtn'){if(!S.premium)return openPremium();S.fly=!S.fly;store.set('fly',S.fly);drawFlights(true);}
-  else if(b.id==='ltnBtn'){if(!S.premium)return openPremium();S.ltn=!S.ltn;store.set('ltn',S.ltn);drawLightning();}
-  else if(b.id==='eqBtn'){if(!S.premium)return openPremium();S.eq=!S.eq;store.set('eq',S.eq);drawQuakes();}
-  else if(b.id==='fireBtn'){if(!S.premium)return openPremium();S.fire=!S.fire;store.set('fire',S.fire);drawFires();}
+  else if(OV[b.id]){if(!S.premium)return openPremium();setOv(b.id);}
   else if(b.id==='tcBtn'){S.tc=!S.tc;store.set('tc',S.tc);drawStorms();}
   else if(b.id==='isoBtn'){S.iso=!S.iso;store.set('iso',S.iso);if(S.iso)showStep(S.idx);else drawIso();}
-  else{const L=LAYERS[b.dataset.l];if(L.premium&&!S.premium)return openPremium();if(S.playing){clearInterval(S.playing);S.playing=null;$('play').innerHTML=PLAY;}S.layer=b.dataset.l;store.set('layer',S.layer);drawLegend();showStep(S.idx);updateLive();saveHash();}
+  else{const L=LAYERS[b.dataset.l];if(L.premium&&!S.premium)return openPremium();if(S.playing){clearInterval(S.playing);S.playing=null;$('play').innerHTML=PLAY;}setOv(null);S.layer=b.dataset.l;store.set('layer',S.layer);drawLegend();showStep(S.idx);updateLive();saveHash();}
   drawRail();
 });
 function drawLegend(){
