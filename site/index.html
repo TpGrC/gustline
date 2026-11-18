@@ -1216,6 +1216,7 @@ window.gustBack=()=>{
   if($('results').style.display==='block'){$('results').style.display='none';return true;}
   return false;
 };
+if(/[?&]capture=1/.test(location.search))window.__wr={map,S,LAYERS,setIdx,showStep,openForecast,closePanel,switchModel,drawRail,drawLegend,updateLive,drawIso,drawStorms,renderPanel,openPremium};
 sizeAll();updateGeo();applyLang();resetParticles();loadMeta();loadCities(1);if(S.eq)drawQuakes();if(S.fire)drawFires();if(S.ltn)drawLightning();if(LAYERS[S.layer].tiles)updateLive();
 }
 </script>
