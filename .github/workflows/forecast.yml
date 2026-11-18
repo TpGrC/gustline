@@ -25,6 +25,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install tools
+        if: github.event_name != 'push'
         run: pip install numpy eccodes
       - name: Keep the last published forecast (used if NOAA is down)
         run: |
@@ -32,8 +33,14 @@ jobs:
           mkdir -p /tmp/lastsite
           git --work-tree=/tmp/lastsite checkout origin/gh-pages -- data 2>/dev/null || true
           ls /tmp/lastsite/data 2>/dev/null | head -3 || true
+      - name: Site-only update - reuse the latest published forecast (fast)
+        id: reuse
+        if: github.event_name == 'push'
+        run: |
+          if [ -f /tmp/lastsite/data/latest.json ]; then rm -rf site/data && cp -r /tmp/lastsite/data site/data && echo "reused=yes" >> "$GITHUB_OUTPUT"; fi
       - name: Download GFS and build map data
         id: build
+        if: steps.reuse.outputs.reused != 'yes'
         continue-on-error: true
         run: python -u gustline_server.py --build-once
       - name: NOAA unavailable - reuse the last forecast
@@ -42,6 +49,7 @@ jobs:
           if [ -d /tmp/lastsite/data ]; then rm -rf site/data && cp -r /tmp/lastsite/data site/data; echo "Reused last forecast"; else echo "No previous data" && exit 1; fi
       - name: Download ECMWF (Premium model)
         id: ecmwf
+        if: steps.reuse.outputs.reused != 'yes'
         continue-on-error: true
         timeout-minutes: 20
         run: python -u ecmwf_build.py
@@ -51,6 +59,7 @@ jobs:
           if [ -d /tmp/lastsite/data/ecmwf ]; then rm -rf site/data/ecmwf && cp -r /tmp/lastsite/data/ecmwf site/data/ecmwf; echo "Reused last ECMWF"; fi
       - name: Download GEM Canada (Premium model)
         id: gem
+        if: steps.reuse.outputs.reused != 'yes'
         continue-on-error: true
         timeout-minutes: 30
         run: python -u gem_build.py
