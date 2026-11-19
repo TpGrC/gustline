@@ -500,7 +500,12 @@ async function mailApp(req, env, url) {   // mail.halewoodsystems.com: its own a
     return html(LOGIN_HTML(false));
   }
   if (url.pathname === '/logout') return new Response(null, { status: 303, headers: { Location: '/login', 'Set-Cookie': 'hm=; Path=/; Max-Age=0; Secure' } });
-  if (!(await cookieOk(req, env))) return Response.redirect(new URL('/login', req.url).toString(), 302);
+  if (!(await cookieOk(req, env))) return url.pathname === '/unread' ? new Response('{"login":true}', { status: 401, headers: { 'Content-Type': 'application/json' } }) : Response.redirect(new URL('/login', req.url).toString(), 302);
+  if (url.pathname === '/unread') {   // used by the Halewood Mail desktop app for new-mail notifications
+    const l = await box(env, { op: 'list', box: 'in' });
+    const top = l.items.find(m => m.unread);
+    return new Response(JSON.stringify({ unread: l.unread, last: top ? { id: top.id, from: top.frm, subject: top.subject } : null }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
   const u = new URL(req.url); u.pathname = '/admin/mail' + (url.pathname === '/' ? '' : url.pathname.replace(/^\/admin\/mail/, ''));
   return mailAdmin(req, env, u, true);
 }
