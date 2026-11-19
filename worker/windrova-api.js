@@ -30,9 +30,9 @@ async function cached(req, ctx, key, upstream, ttl, init = {}) {
 /* ================= Private dashboard (/admin) — only for the owner ================= */
 const CHECKS = [
   { id: 'windrova', name: 'Windrova website', url: 'https://windrova.com/' },
-  { id: 'gfs', name: 'Windrova forecast data · GFS', url: 'https://windrova.com/data/latest.json', fresh: true },
-  { id: 'ecmwf', name: 'Windrova forecast data · ECMWF', url: 'https://windrova.com/data/ecmwf/latest.json', fresh: true },
-  { id: 'gem', name: 'Windrova forecast data · GEM', url: 'https://windrova.com/data/gem/latest.json', fresh: true },
+  { id: 'gfs', name: 'Windrova forecast data · GFS', url: 'https://windrova.com/data/latest.json', fresh: [12, 18] },
+  { id: 'ecmwf', name: 'Windrova forecast data · ECMWF', url: 'https://windrova.com/data/ecmwf/latest.json', fresh: [22, 30] },
+  { id: 'gem', name: 'Windrova forecast data · GEM', url: 'https://windrova.com/data/gem/latest.json', fresh: [22, 30] },
   { id: 'met', name: 'MET Norway (place forecasts source)', url: 'https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=38&lon=23' },
   { id: 'halewood', name: 'Halewood Systems website', url: 'https://halewoodsystems.com/' },
   { id: 'slipgate', name: 'Slipgate (itch.io)', url: 'https://halewood-systems.itch.io/slipgate' },
@@ -49,7 +49,7 @@ async function runCheck(c) {
       const age = (Date.now() / 1000 - (j.runTime || 0)) / 3600;
       out.note = `model run ${j.run || '?'} · ${age.toFixed(1)} h old`;
       out.age = age;
-      if (age > 18) out.state = 'down'; else if (age > 10) out.state = 'warn';
+      if (age > c.fresh[1]) out.state = 'down'; else if (age > c.fresh[0]) out.state = 'warn';
     } else if (ms > 4000 && out.state === 'up') { out.state = 'warn'; out.note = 'slow'; }
     return out;
   } catch (e) { return { id: c.id, name: c.name, url: c.url, state: 'down', ms: Date.now() - t0, note: String(e) }; }
