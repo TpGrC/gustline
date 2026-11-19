@@ -12,3 +12,11 @@ crons = ["50 * * * *"]
 
 [observability]
 enabled = true
+
+[[durable_objects.bindings]]
+name = "LICENSES"
+class_name = "Licenses"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Licenses"]
