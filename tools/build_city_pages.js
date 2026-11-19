@@ -48,7 +48,7 @@ const page = c => {
 <p>Windrova shows live animated wind, gusts, rain, temperature, clouds, pressure, thunderstorms and sea waves for ${esc(c.name)} and the rest of ${esc(c.cn)}, with a 10-day forecast from the ECMWF and GFS weather models, live satellite pictures, tropical storm tracking and the best times for the beach, sailing, kitesurf, hiking and cycling. It is free, fast and works on phones and computers.</p>
 <h2>Weather near ${esc(c.name)}</h2><div class="near">${nb.map(o => `<a href="/weather/${o.slug}/">${esc(o.name)}</a>`).join('')}</div>
 </main><footer>Windrova by Halewood Systems · Forecast data: MET Norway (CC BY 4.0) · <a href="/weather/">All cities</a> · <a href="/privacy.html">Privacy</a></footer>
-${script(c)}</body></html>`;
+${script(c)}<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "1ae1639f8474498a89536545d9edbd7e"}'></script></body></html>`;
 };
 fs.rmSync(OUT, { recursive: true, force: true });
 for (const c of list) { const d = path.join(OUT, c.slug); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'index.html'), page(c)); }
@@ -58,7 +58,7 @@ const idx = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta na
 <meta name="description" content="Live wind, rain, temperature and 10-day forecasts for 5,000 cities around the world."><link rel="canonical" href="https://windrova.com/weather/"><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${css}</style></head><body>
 <header><a href="/"><img src="/logo.svg" width="28" height="28" alt="">Windrova</a></header><main><h1>Weather worldwide</h1><p class="sub">Live maps and forecasts for 5,000 cities.</p>
 ${Object.keys(byC).sort().map(k => `<h2>${esc(k)}</h2><div class="near">${byC[k].map(o => `<a href="/weather/${o.slug}/">${esc(o.name)}</a>`).join('')}</div>`).join('')}
-</main><footer>Windrova by Halewood Systems</footer></body></html>`;
+</main><footer>Windrova by Halewood Systems</footer><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "1ae1639f8474498a89536545d9edbd7e"}'></script></body></html>`;
 fs.writeFileSync(path.join(OUT, 'index.html'), idx);
 // sitemap
 const urls = ['https://windrova.com/', 'https://windrova.com/weather/', ...list.map(c => `https://windrova.com/weather/${c.slug}/`)];
