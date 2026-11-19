@@ -126,6 +126,7 @@ async function adminPage(req, env) {
   if (!env.ADMIN_PASSWORD) return new Response('Set the ADMIN_PASSWORD secret first.', { status: 503 });
   if (!authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
   const [checks, wf, tr, money, kl] = await Promise.all([Promise.all(CHECKS.map(runCheck)), lastWorkflow(env), traffic(env), earnings(env), kyro(env, 'list').then(r => r.json()).catch(e => ({ error: String(e) }))]);
+  const mailUnread = env.MAILBOX ? await box(env, { op: 'list', box: 'in' }).then(r => r.unread).catch(() => 0) : 0;
   const bad = checks.filter(c => c.state !== 'up');
   const report = bad.length ? `Halewood dashboard problem report (${new Date().toISOString()}):\n` + bad.map(c => `- ${c.name}: ${c.state.toUpperCase()} ${c.note || ''} (${c.url}, HTTP ${c.code ?? '-'}, ${c.ms} ms)`).join('\n') +
     (wf.runs ? `\nLast forecast workflow runs:\n` + wf.runs.map(r => `  ${r.when} ${r.event} ${r.status}/${r.result}`).join('\n') : '') : '';
@@ -170,7 +171,7 @@ table{width:100%;border-collapse:collapse;background:#11161e;border:1px solid #1
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
 button{background:#2f7bff;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-weight:600;font-size:15px;cursor:pointer;min-height:44px}pre{white-space:pre-wrap;background:#11161e;border:1px solid #1e2632;border-radius:12px;padding:14px;font-size:13px;color:#c9d3df}
 a{color:#7fb0ff}</style></head><body><main>
-<div class="top"><div><h1>Halewood dashboard</h1><div class="m">Checked ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/Athens' })} (Athens) · refreshes every 2 minutes</div></div><a href="">Refresh now</a></div>
+<div class="top"><div><h1>Halewood dashboard</h1><div class="m">Checked ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/Athens' })} (Athens) · refreshes every 2 minutes</div></div><a href="/admin/mail" style="margin-right:14px">✉ Mail${mailUnread ? ` (${mailUnread} new)` : ''}</a><a href="">Refresh now</a></div>
 <div class="sum ${bad.length ? 'bad' : 'ok'}">${bad.length ? `⚠ ${bad.length} problem${bad.length > 1 ? 's' : ''} found` : '✓ All systems operational'}</div>
 ${bad.length ? `<h2>Fix it with AI</h2><p class="m">Copy this report and paste it to Claude.</p><pre id="rep">${esc(report)}</pre><button onclick="navigator.clipboard.writeText(document.getElementById('rep').textContent).then(()=>this.textContent='Copied ✓')">Copy problem report</button>` : ''}
 <h2>Status</h2><div class="scroll"><table>${rows}</table></div>
@@ -298,6 +299,7 @@ const num = (v, lo, hi) => { const n = parseFloat(v); return isFinite(n) && n >=
 
 export default {
   async scheduled(event, env, ctx) { ctx.waitUntil(watchdog(env)); },
+  async email(message, env, ctx) { await receiveMail(message, env); },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return cors(req, new Response(null, { headers: { 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } }));
@@ -314,6 +316,7 @@ export default {
       if (op && serial) { await kyro(env, op, { serial }); return Response.redirect(new URL('/admin#kyrofix', req.url).toString(), 302); }
       return kyro(env, 'list');
     }
+    if (url.pathname.startsWith('/admin/mail')) return mailAdmin(req, env, url);
     if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
     if (url.pathname === '/health') return cors(req, new Response('ok'));
@@ -330,3 +333,160 @@ export default {
     return new Response('Windrova API', { status: 404 });
   },
 };
+
+
+/* ================= Halewood Mail: support@ / contact@ / billing@ / any @halewoodsystems.com ================= */
+// Incoming: Cloudflare Email Routing (catch-all) -> email() below -> stored in the Mailbox Durable Object.
+// Outgoing: Resend free plan (secret RESEND_KEY). Optional copy to a verified address: secret MAIL_FORWARD.
+const MAIL_DOMAIN = 'halewoodsystems.com';
+const MAIL_FROMS = ['support', 'contact', 'billing', 'noreply'];
+
+function decodeWords(s) {
+  return String(s || '').replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=(?:\s+(?==\?))?/g, (_, cs, enc, txt) => {
+    try {
+      let bytes;
+      if (enc.toUpperCase() === 'B') bytes = Uint8Array.from(atob(txt), c => c.charCodeAt(0));
+      else bytes = qpBytes(txt.replace(/_/g, ' '));
+      return new TextDecoder(cs.toLowerCase()).decode(bytes);
+    } catch (e) { return txt; }
+  });
+}
+function qpBytes(s) {
+  s = s.replace(/=\r?\n/g, ''); const out = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; }
+    else { const c = s.charCodeAt(i); if (c < 128) out.push(c); else out.push(...new TextEncoder().encode(s[i])); }
+  }
+  return new Uint8Array(out);
+}
+function splitHead(raw) {
+  const i = raw.search(/\r?\n\r?\n/); const head = i < 0 ? raw : raw.slice(0, i); const body = i < 0 ? '' : raw.slice(i).replace(/^\r?\n\r?\n/, '');
+  const h = {}; head.replace(/\r?\n[ \t]+/g, ' ').split(/\r?\n/).forEach(l => { const j = l.indexOf(':'); if (j > 0) { const k = l.slice(0, j).trim().toLowerCase(); if (!(k in h)) h[k] = l.slice(j + 1).trim(); } });
+  return { h, body };
+}
+const param = (v, name) => { const m = new RegExp(name + '\\*?=(?:"([^"]*)"|([^;\\s]*))', 'i').exec(v || ''); return m ? (m[1] ?? m[2]) : ''; };
+function bodyText(part, ctype, cte) {
+  const cs = param(ctype, 'charset') || 'utf-8'; let bytes;
+  cte = (cte || '').toLowerCase();
+  if (cte === 'base64') { try { bytes = Uint8Array.from(atob(part.replace(/\s+/g, '')), c => c.charCodeAt(0)); } catch (e) { bytes = new TextEncoder().encode(part); } }
+  else if (cte === 'quoted-printable') bytes = qpBytes(part);
+  else bytes = Uint8Array.from(part, c => c.charCodeAt(0) & 255);
+  try { return new TextDecoder(cs.toLowerCase(), { fatal: false }).decode(bytes); } catch (e) { return new TextDecoder().decode(bytes); }
+}
+function parseMime(raw, out = { text: '', html: '', files: [] }, depth = 0) {
+  const { h, body } = splitHead(raw); const ct = h['content-type'] || 'text/plain'; const type = ct.split(';')[0].trim().toLowerCase();
+  if (type.startsWith('multipart/') && depth < 6) {
+    const b = param(ct, 'boundary'); if (!b) return out;
+    body.split('--' + b).slice(1).forEach(p => { if (!p.startsWith('--')) parseMime(p.replace(/^\r?\n/, ''), out, depth + 1); });
+    return out;
+  }
+  const disp = (h['content-disposition'] || '').toLowerCase(); const fname = decodeWords(param(h['content-disposition'], 'filename') || param(ct, 'name'));
+  if (disp.startsWith('attachment') || (fname && !type.startsWith('text/'))) { out.files.push({ name: fname || 'file', type, size: Math.round(body.length * 0.74) }); return out; }
+  if (type === 'text/html' && !out.html) out.html = bodyText(body, ct, h['content-transfer-encoding']);
+  else if (type === 'text/plain' && !out.text) out.text = bodyText(body, ct, h['content-transfer-encoding']);
+  return out;
+}
+const htmlToText = s => String(s || '').replace(/<(style|script)[\s\S]*?<\/\1>/gi, '').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/tr>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\n{3,}/g, '\n\n').trim();
+
+export class Mailbox {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS mail (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, box TEXT, frm TEXT, rcpt TEXT, subject TEXT, text TEXT, html TEXT, files TEXT, msgid TEXT, unread INTEGER)`);
+  }
+  async fetch(req) {
+    const { op, ...a } = await req.json();
+    const J = o => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json' } });
+    if (op === 'add') {
+      this.sql.exec('INSERT INTO mail (ts,box,frm,rcpt,subject,text,html,files,msgid,unread) VALUES (?,?,?,?,?,?,?,?,?,?)', Date.now(), a.box, a.frm, a.rcpt, a.subject, (a.text || '').slice(0, 200000), (a.html || '').slice(0, 400000), JSON.stringify(a.files || []), a.msgid || '', a.box === 'in' ? 1 : 0);
+      return J({ ok: true });
+    }
+    if (op === 'list') return J({ items: [...this.sql.exec('SELECT id,ts,frm,rcpt,subject,unread,substr(text,1,140) AS snip FROM mail WHERE box=? ORDER BY id DESC LIMIT 200', a.box || 'in')], unread: this.sql.exec("SELECT count(*) AS n FROM mail WHERE box='in' AND unread=1").one().n });
+    if (op === 'get') { const r = [...this.sql.exec('SELECT * FROM mail WHERE id=?', +a.id)][0]; if (r) this.sql.exec('UPDATE mail SET unread=0 WHERE id=?', +a.id); return J(r || null); }
+    if (op === 'del') { this.sql.exec('DELETE FROM mail WHERE id=?', +a.id); return J({ ok: true }); }
+    return J({ error: 'op' });
+  }
+}
+const box = (env, body) => env.MAILBOX.get(env.MAILBOX.idFromName('halewood')).fetch('https://mail/', { method: 'POST', body: JSON.stringify(body) }).then(r => r.json());
+
+async function receiveMail(message, env) {
+  const buf = await new Response(message.raw).arrayBuffer();
+  let raw = ''; const u8 = new Uint8Array(buf); for (let i = 0; i < u8.length; i += 32768) raw += String.fromCharCode(...u8.subarray(i, i + 32768));
+  const { h } = splitHead(raw); const m = parseMime(raw);
+  await box(env, { op: 'add', box: 'in', frm: decodeWords(h.from || message.from), rcpt: message.to, subject: decodeWords(h.subject || '(no subject)'),
+    text: m.text || htmlToText(m.html), html: m.html, files: m.files, msgid: h['message-id'] || '' });
+  if (env.MAIL_FORWARD) { try { await message.forward(String(env.MAIL_FORWARD).trim()); } catch (e) { } }
+}
+
+async function sendMail(env, { from, to, subject, text, inReplyTo }) {
+  if (!env.RESEND_KEY) return { ok: false, error: 'Sending is not set up yet (RESEND_KEY secret missing).' };
+  const user = MAIL_FROMS.includes(from) ? from : 'support';
+  const body = { from: `Halewood Systems <${user}@${MAIL_DOMAIN}>`, to: [to], subject, text, reply_to: `${user}@${MAIL_DOMAIN}` };
+  if (inReplyTo) body.headers = { 'In-Reply-To': inReplyTo, References: inReplyTo };
+  const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + String(env.RESEND_KEY).trim(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return { ok: false, error: j.message || ('HTTP ' + r.status) };
+  await box(env, { op: 'add', box: 'sent', frm: `${user}@${MAIL_DOMAIN}`, rcpt: to, subject, text });
+  return { ok: true };
+}
+
+const MAIL_CSS = `body{margin:0;background:#0b0e12;color:#e8eef3;font:14px/1.5 "Segoe UI",system-ui,sans-serif}a{color:#5cc8ff;text-decoration:none}
+.top{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid #1d252c;background:#0f1419}.top b{font-size:16px}.top .sp{flex:1}
+.btn{display:inline-block;padding:8px 16px;border-radius:9px;background:#1189c9;color:#fff;font-weight:600;border:0;cursor:pointer;font:inherit}.btn.g{background:#232c33}
+.wrap{max-width:980px;margin:0 auto;padding:18px 22px}.tabs a{padding:6px 12px;border-radius:8px;color:#9aa8b2}.tabs a.on{background:#1c252c;color:#fff}
+.row{display:flex;gap:14px;padding:12px 14px;border-bottom:1px solid #182027;color:inherit}.row:hover{background:#121920}.row .f{width:230px;flex:none;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.row .s{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row .s i{color:#7d8a94;font-style:normal}.row .t{color:#7d8a94;font-size:12px;flex:none}.u{font-weight:700}
+.card{background:#11171c;border:1px solid #1e272e;border-radius:12px;padding:18px;margin-bottom:14px}.meta{color:#8d9aa4;font-size:13px}
+input,textarea,select{width:100%;box-sizing:border-box;background:#0b1014;border:1px solid #26313a;border-radius:9px;color:#e8eef3;padding:9px 11px;font:inherit;margin:4px 0 10px}
+textarea{min-height:220px;resize:vertical}iframe{width:100%;min-height:480px;border:0;border-radius:8px;background:#fff}pre{white-space:pre-wrap;word-wrap:break-word;font:inherit}
+.note{padding:10px 14px;border-radius:9px;background:#2a2412;color:#ffd77a;margin-bottom:14px}.ok{background:#10281b;color:#7ff0ad}`;
+const when = ts => new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/Athens', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const page = (title, body) => new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} · Halewood Mail</title><style>${MAIL_CSS}</style></head><body>
+<div class="top"><b>✉ Halewood Mail</b><span class="tabs"><a href="/admin/mail" >Inbox</a> <a href="/admin/mail?box=sent">Sent</a></span><span class="sp"></span><a class="btn" href="/admin/mail?compose=1">New email</a><a class="btn g" href="/admin">Dashboard</a></div><div class="wrap">${body}</div></body></html>`,
+  { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'" } });
+
+function composeForm(env, o = {}) {
+  const sel = MAIL_FROMS.filter(x => x !== 'noreply').map(x => `<option ${o.from === x ? 'selected' : ''}>${x}</option>`).join('');
+  return `${env.RESEND_KEY ? '' : '<div class="note">Sending is not switched on yet. Receiving works. Ask Claude to finish the Resend setup.</div>'}
+<form class="card" method="post" action="/admin/mail/send"><input type="hidden" name="irt" value="${esc(o.irt || '')}">
+<label class="meta">From</label><select name="from">${sel}</select><span class="meta">@${MAIL_DOMAIN}</span><br>
+<label class="meta">To</label><input name="to" type="email" required value="${esc(o.to || '')}">
+<label class="meta">Subject</label><input name="subject" required value="${esc(o.subject || '')}">
+<label class="meta">Message</label><textarea name="text" required>${esc(o.text || '')}</textarea><button class="btn">Send</button></form>`;
+}
+
+async function mailAdmin(req, env, url) {
+  if (!authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
+  if (!env.MAILBOX) return new Response('Mailbox not deployed yet', { status: 503 });
+  if (req.method === 'POST') {
+    const f = await req.formData();
+    if (url.pathname === '/admin/mail/send') {
+      const r = await sendMail(env, { from: f.get('from'), to: String(f.get('to') || '').trim(), subject: String(f.get('subject') || ''), text: String(f.get('text') || ''), inReplyTo: f.get('irt') || '' });
+      return r.ok ? Response.redirect(new URL('/admin/mail?box=sent&sent=1', req.url).toString(), 303) : page('Not sent', `<div class="note">Not sent: ${esc(r.error)}</div>` + composeForm(env, Object.fromEntries(f)));
+    }
+    if (url.pathname === '/admin/mail/delete') { await box(env, { op: 'del', id: f.get('id') }); return Response.redirect(new URL('/admin/mail', req.url).toString(), 303); }
+  }
+  if (url.searchParams.get('compose')) return page('New email', composeForm(env));
+  if (url.searchParams.get('raw')) {   // HTML body, shown inside a sandboxed frame (no scripts, no forms)
+    const m = await box(env, { op: 'get', id: url.searchParams.get('raw') });
+    return new Response(m && m.html || '', { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; sandbox" } });
+  }
+  const id = url.searchParams.get('id');
+  if (id) {
+    const m = await box(env, { op: 'get', id });
+    if (!m) return page('Not found', '<p>Message not found.</p>');
+    const files = JSON.parse(m.files || '[]');
+    const addr = (m.frm.match(/<([^>]+)>/) || [, m.frm])[1];
+    const quote = `\n\n\nOn ${when(m.ts)}, ${m.frm} wrote:\n` + (m.text || '').split('\n').map(l => '> ' + l).join('\n');
+    const user = (m.rcpt || '').split('@')[0];
+    return page(m.subject, `<div class="card"><h2 style="margin:0 0 6px">${esc(m.subject)}</h2><div class="meta">From <b>${esc(m.frm)}</b> to ${esc(m.rcpt)} · ${when(m.ts)}</div>
+${files.length ? `<div class="meta" style="margin-top:6px">📎 ${files.map(x => esc(x.name)).join(', ')} (attachments are not stored)</div>` : ''}</div>
+<div class="card">${m.html ? `<iframe sandbox src="/admin/mail?raw=${m.id}"></iframe>` : `<pre>${esc(m.text)}</pre>`}</div>
+${m.box === 'in' ? `<h3>Reply</h3>` + composeForm(env, { from: MAIL_FROMS.includes(user) ? user : 'support', to: addr, subject: /^re:/i.test(m.subject) ? m.subject : 'Re: ' + m.subject, text: quote, irt: m.msgid }) : ''}
+<form method="post" action="/admin/mail/delete"><input type="hidden" name="id" value="${m.id}"><button class="btn g">Delete</button></form>`);
+  }
+  const bx = url.searchParams.get('box') === 'sent' ? 'sent' : 'in';
+  const l = await box(env, { op: 'list', box: bx });
+  const rows = l.items.map(m => `<a class="row ${m.unread ? 'u' : ''}" href="/admin/mail?id=${m.id}"><span class="f">${esc(bx === 'in' ? m.frm : 'To: ' + m.rcpt)}</span><span class="s">${esc(m.subject)} <i>— ${esc(m.snip)}</i></span><span class="t">${when(m.ts)}</span></a>`).join('');
+  return page(bx === 'in' ? 'Inbox' : 'Sent', `${url.searchParams.get('sent') ? '<div class="note ok">Sent ✓</div>' : ''}
+<h2 style="margin:4px 0 12px">${bx === 'in' ? `Inbox ${l.unread ? `(${l.unread} new)` : ''}` : 'Sent'}</h2><div class="card" style="padding:0">${rows || '<p style="padding:16px" class="meta">No emails yet. Anything sent to any address @' + MAIL_DOMAIN + ' lands here.</p>'}</div>`);
+}
