@@ -19,3 +19,5 @@ jobs:
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "Add the CLOUDFLARE_API_TOKEN secret first"; exit 1; fi
           npx --yes wrangler@4 deploy
+          # the same key lets the dashboard read visitor numbers (Account Analytics: Read)
+          printf '%s' "$CLOUDFLARE_API_TOKEN" | npx --yes wrangler@4 secret put CF_API_TOKEN
