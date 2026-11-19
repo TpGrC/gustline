@@ -113,6 +113,16 @@ async function earnings(env) {
   } catch (e) { return { error: String(e) }; }
 }
 
+async function sessionSig(env, ts) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode('hm|' + String(env.ADMIN_PASSWORD).trim()), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return toHex(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(String(ts))));
+}
+async function cookieOk(req, env) {
+  if (!env.ADMIN_PASSWORD) return false;
+  const m = /(?:^|;\s*)hm=(\d+)\.([0-9a-f]{64})/.exec(req.headers.get('Cookie') || '');
+  if (!m || Date.now() - +m[1] > 30 * 864e5) return false;
+  return (await sessionSig(env, m[1])) === m[2];
+}
 function authOk(req, env) {
   if (!env.ADMIN_PASSWORD) return false;
   const h = req.headers.get('Authorization') || '';
@@ -316,6 +326,7 @@ export default {
       if (op && serial) { await kyro(env, op, { serial }); return Response.redirect(new URL('/admin#kyrofix', req.url).toString(), 302); }
       return kyro(env, 'list');
     }
+    if (url.hostname.startsWith('mail.')) return mailApp(req, env, url);
     if (url.pathname.startsWith('/admin/mail')) return mailAdmin(req, env, url);
     if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
@@ -400,7 +411,17 @@ export class Mailbox {
       this.sql.exec('INSERT INTO mail (ts,box,frm,rcpt,subject,text,html,files,msgid,unread) VALUES (?,?,?,?,?,?,?,?,?,?)', Date.now(), a.box, a.frm, a.rcpt, a.subject, (a.text || '').slice(0, 200000), (a.html || '').slice(0, 400000), JSON.stringify(a.files || []), a.msgid || '', a.box === 'in' ? 1 : 0);
       return J({ ok: true });
     }
-    if (op === 'list') return J({ items: [...this.sql.exec('SELECT id,ts,frm,rcpt,subject,unread,substr(text,1,140) AS snip FROM mail WHERE box=? ORDER BY id DESC LIMIT 200', a.box || 'in')], unread: this.sql.exec("SELECT count(*) AS n FROM mail WHERE box='in' AND unread=1").one().n });
+    if (op === 'list') {
+      const known = ['support', 'contact', 'billing', 'noreply'];
+      let where = 'box=?', args = [a.box || 'in'];
+      if (a.to === 'other') { where += ' AND ' + known.map(() => 'lower(rcpt) NOT LIKE ?').join(' AND '); args.push(...known.map(k => k + '@%')); }
+      else if (a.to) { where += ' AND lower(rcpt) LIKE ?'; args.push(String(a.to).toLowerCase() + '@%'); }
+      const counts = { all: 0, other: 0 };
+      for (const r of this.sql.exec("SELECT lower(substr(rcpt,1,instr(rcpt,'@')-1)) AS u, count(*) AS n FROM mail WHERE box='in' AND unread=1 GROUP BY u")) {
+        counts.all += r.n; if (known.includes(r.u)) counts[r.u] = r.n; else counts.other += r.n;
+      }
+      return J({ items: [...this.sql.exec(`SELECT id,ts,frm,rcpt,subject,unread,substr(text,1,140) AS snip FROM mail WHERE ${where} ORDER BY id DESC LIMIT 200`, ...args)], unread: counts.all, counts });
+    }
     if (op === 'get') { const r = [...this.sql.exec('SELECT * FROM mail WHERE id=?', +a.id)][0]; if (r) this.sql.exec('UPDATE mail SET unread=0 WHERE id=?', +a.id); return J(r || null); }
     if (op === 'del') { this.sql.exec('DELETE FROM mail WHERE id=?', +a.id); return J({ ok: true }); }
     return J({ error: 'op' });
@@ -440,8 +461,9 @@ input,textarea,select{width:100%;box-sizing:border-box;background:#0b1014;border
 textarea{min-height:220px;resize:vertical}iframe{width:100%;min-height:480px;border:0;border-radius:8px;background:#fff}pre{white-space:pre-wrap;word-wrap:break-word;font:inherit}
 .note{padding:10px 14px;border-radius:9px;background:#2a2412;color:#ffd77a;margin-bottom:14px}.ok{background:#10281b;color:#7ff0ad}`;
 const when = ts => new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/Athens', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-const page = (title, body) => new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} · Halewood Mail</title><style>${MAIL_CSS}</style></head><body>
-<div class="top"><b>✉ Halewood Mail</b><span class="tabs"><a href="/admin/mail" >Inbox</a> <a href="/admin/mail?box=sent">Sent</a></span><span class="sp"></span><a class="btn" href="/admin/mail?compose=1">New email</a><a class="btn g" href="/admin">Dashboard</a></div><div class="wrap">${body}</div></body></html>`,
+const page = (title, body, app) => new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} · Halewood Mail</title><style>${MAIL_CSS}</style></head><body>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="https://halewoodsystems.com/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0b0e12">
+<div class="top"><b>✉ Halewood Mail</b><span class="tabs"><a href="/admin/mail">Inbox</a> <a href="/admin/mail?box=sent">Sent</a></span><span class="sp"></span><a class="btn" href="/admin/mail?compose=1">New email</a>${app ? '<a class="btn g" href="/logout">Sign out</a>' : '<a class="btn g" href="/admin">Dashboard</a>'}</div><div class="wrap">${body}</div></body></html>`,
   { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'" } });
 
 function composeForm(env, o = {}) {
@@ -454,18 +476,47 @@ function composeForm(env, o = {}) {
 <label class="meta">Message</label><textarea name="text" required>${esc(o.text || '')}</textarea><button class="btn">Send</button></form>`;
 }
 
-async function mailAdmin(req, env, url) {
-  if (!authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
+const LOGIN_HTML = (err) => `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Halewood Mail</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="https://halewoodsystems.com/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0b0e12"><style>${MAIL_CSS}
+.lg{max-width:360px;margin:12vh auto;padding:28px}.lg img{width:64px;display:block;margin:0 auto 10px}</style></head><body><form class="card lg" method="post" action="/login">
+<img src="https://halewoodsystems.com/apple-touch-icon.png" alt=""><h2 style="text-align:center;margin:0 0 16px">Halewood Mail</h2>${err ? '<div class="note">Wrong password</div>' : ''}
+<input type="password" name="pw" placeholder="Password" autofocus required><button class="btn" style="width:100%">Sign in</button></form></body></html>`;
+const MANIFEST = JSON.stringify({ name: 'Halewood Mail', short_name: 'Mail', start_url: '/', display: 'standalone', background_color: '#0b0e12', theme_color: '#0b0e12',
+  icons: [{ src: 'https://halewoodsystems.com/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }, { src: 'https://halewoodsystems.com/img/logo-mark.png', sizes: '512x512', type: 'image/png' }] });
+
+async function mailApp(req, env, url) {   // mail.halewoodsystems.com: its own app with a login page
+  const html = s => new Response(s, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (url.pathname === '/manifest.webmanifest') return new Response(MANIFEST, { headers: { 'Content-Type': 'application/manifest+json' } });
+  if (url.pathname === '/login') {
+    if (req.method === 'POST') {
+      const f = await req.formData();
+      if (env.ADMIN_PASSWORD && String(f.get('pw') || '') === String(env.ADMIN_PASSWORD).trim()) {
+        const ts = String(Date.now());
+        return new Response(null, { status: 303, headers: { Location: '/', 'Set-Cookie': `hm=${ts}.${await sessionSig(env, ts)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax` } });
+      }
+      await new Promise(r => setTimeout(r, 1200));
+      return html(LOGIN_HTML(true));
+    }
+    return html(LOGIN_HTML(false));
+  }
+  if (url.pathname === '/logout') return new Response(null, { status: 303, headers: { Location: '/login', 'Set-Cookie': 'hm=; Path=/; Max-Age=0; Secure' } });
+  if (!(await cookieOk(req, env))) return Response.redirect(new URL('/login', req.url).toString(), 302);
+  const u = new URL(req.url); u.pathname = '/admin/mail' + (url.pathname === '/' ? '' : url.pathname.replace(/^\/admin\/mail/, ''));
+  return mailAdmin(req, env, u, true);
+}
+
+async function mailAdmin(req, env, url, app = false) {
+  if (!app && !authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
   if (!env.MAILBOX) return new Response('Mailbox not deployed yet', { status: 503 });
   if (req.method === 'POST') {
     const f = await req.formData();
     if (url.pathname === '/admin/mail/send') {
       const r = await sendMail(env, { from: f.get('from'), to: String(f.get('to') || '').trim(), subject: String(f.get('subject') || ''), text: String(f.get('text') || ''), inReplyTo: f.get('irt') || '' });
-      return r.ok ? Response.redirect(new URL('/admin/mail?box=sent&sent=1', req.url).toString(), 303) : page('Not sent', `<div class="note">Not sent: ${esc(r.error)}</div>` + composeForm(env, Object.fromEntries(f)));
+      return r.ok ? Response.redirect(new URL('/admin/mail?box=sent&sent=1', req.url).toString(), 303) : page('Not sent', `<div class="note">Not sent: ${esc(r.error)}</div>` + composeForm(env, Object.fromEntries(f)), app);
     }
     if (url.pathname === '/admin/mail/delete') { await box(env, { op: 'del', id: f.get('id') }); return Response.redirect(new URL('/admin/mail', req.url).toString(), 303); }
   }
-  if (url.searchParams.get('compose')) return page('New email', composeForm(env));
+  if (url.searchParams.get('compose')) return page('New email', composeForm(env), app);
   if (url.searchParams.get('raw')) {   // HTML body, shown inside a sandboxed frame (no scripts, no forms)
     const m = await box(env, { op: 'get', id: url.searchParams.get('raw') });
     return new Response(m && m.html || '', { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; sandbox" } });
@@ -473,7 +524,7 @@ async function mailAdmin(req, env, url) {
   const id = url.searchParams.get('id');
   if (id) {
     const m = await box(env, { op: 'get', id });
-    if (!m) return page('Not found', '<p>Message not found.</p>');
+    if (!m) return page('Not found', '<p>Message not found.</p>', app);
     const files = JSON.parse(m.files || '[]');
     const addr = (m.frm.match(/<([^>]+)>/) || [, m.frm])[1];
     const quote = `\n\n\nOn ${when(m.ts)}, ${m.frm} wrote:\n` + (m.text || '').split('\n').map(l => '> ' + l).join('\n');
@@ -482,11 +533,13 @@ async function mailAdmin(req, env, url) {
 ${files.length ? `<div class="meta" style="margin-top:6px">📎 ${files.map(x => esc(x.name)).join(', ')} (attachments are not stored)</div>` : ''}</div>
 <div class="card">${m.html ? `<iframe sandbox src="/admin/mail?raw=${m.id}"></iframe>` : `<pre>${esc(m.text)}</pre>`}</div>
 ${m.box === 'in' ? `<h3>Reply</h3>` + composeForm(env, { from: MAIL_FROMS.includes(user) ? user : 'support', to: addr, subject: /^re:/i.test(m.subject) ? m.subject : 'Re: ' + m.subject, text: quote, irt: m.msgid }) : ''}
-<form method="post" action="/admin/mail/delete"><input type="hidden" name="id" value="${m.id}"><button class="btn g">Delete</button></form>`);
+<form method="post" action="/admin/mail/delete"><input type="hidden" name="id" value="${m.id}"><button class="btn g">Delete</button></form>`, app);
   }
   const bx = url.searchParams.get('box') === 'sent' ? 'sent' : 'in';
-  const l = await box(env, { op: 'list', box: bx });
+  const to = url.searchParams.get('to') || '';
+  const l = await box(env, { op: 'list', box: bx, to });
+  const tabs = bx === 'in' ? `<div class="tabs" style="margin-bottom:12px">${[['', 'All'], ...MAIL_FROMS.map(x => [x, x + '@']), ['other', 'Other']].map(([k, n]) => `<a class="${to === k ? 'on' : ''}" href="/admin/mail${k ? '?to=' + k : ''}">${n}${l.counts && l.counts[k || 'all'] ? ` (${l.counts[k || 'all']})` : ''}</a>`).join(' ')}</div>` : '';
   const rows = l.items.map(m => `<a class="row ${m.unread ? 'u' : ''}" href="/admin/mail?id=${m.id}"><span class="f">${esc(bx === 'in' ? m.frm : 'To: ' + m.rcpt)}</span><span class="s">${esc(m.subject)} <i>— ${esc(m.snip)}</i></span><span class="t">${when(m.ts)}</span></a>`).join('');
   return page(bx === 'in' ? 'Inbox' : 'Sent', `${url.searchParams.get('sent') ? '<div class="note ok">Sent ✓</div>' : ''}
-<h2 style="margin:4px 0 12px">${bx === 'in' ? `Inbox ${l.unread ? `(${l.unread} new)` : ''}` : 'Sent'}</h2><div class="card" style="padding:0">${rows || '<p style="padding:16px" class="meta">No emails yet. Anything sent to any address @' + MAIL_DOMAIN + ' lands here.</p>'}</div>`);
+<h2 style="margin:4px 0 12px">${bx === 'in' ? `Inbox ${l.unread ? `(${l.unread} new)` : ''}` : 'Sent'}</h2>${tabs}<div class="card" style="padding:0">${rows || '<p style="padding:16px" class="meta">No emails yet. Anything sent to any address @' + MAIL_DOMAIN + ' lands here.</p>'}</div>`, app);
 }
