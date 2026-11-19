@@ -41,7 +41,7 @@ const CHECKS = [
 async function runCheck(c) {
   const t0 = Date.now();
   try {
-    const r = await fetch(c.url + (c.url.includes('?') ? '&' : '?') + 'nocache=' + t0, { headers: { 'User-Agent': UA }, cf: { cacheTtl: 0 } });
+    const r = await fetch(c.url.includes('?') ? c.url : c.url + '?nocache=' + t0, { headers: { 'User-Agent': UA }, cf: { cacheTtl: 0 } });
     const ms = Date.now() - t0;
     const out = { id: c.id, name: c.name, url: c.url, code: r.status, ms, state: r.ok ? 'up' : 'down', note: r.ok ? '' : 'HTTP ' + r.status };
     if (r.ok && c.fresh) {
