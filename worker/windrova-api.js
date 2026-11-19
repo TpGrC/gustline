@@ -124,15 +124,145 @@ async function cached(req, ctx, key, upstream, ttl, init = {}) {
   return cors(req, res);
 }
 
+
+/* ================= Private dashboard (/admin) — only for the owner ================= */
+const CHECKS = [
+  { id: 'windrova', name: 'Windrova website', url: 'https://windrova.com/' },
+  { id: 'gfs', name: 'Windrova forecast data · GFS', url: 'https://windrova.com/data/latest.json', fresh: true },
+  { id: 'ecmwf', name: 'Windrova forecast data · ECMWF', url: 'https://windrova.com/data/ecmwf/latest.json', fresh: true },
+  { id: 'gem', name: 'Windrova forecast data · GEM', url: 'https://windrova.com/data/gem/latest.json', fresh: true },
+  { id: 'met', name: 'MET Norway (place forecasts source)', url: 'https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=38&lon=23' },
+  { id: 'halewood', name: 'Halewood Systems website', url: 'https://halewoodsystems.com/' },
+  { id: 'slipgate', name: 'Slipgate (itch.io)', url: 'https://halewood-systems.itch.io/slipgate' },
+];
+
+async function runCheck(c) {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(c.url + (c.url.includes('?') ? '&' : '?') + 'nocache=' + t0, { headers: { 'User-Agent': UA }, cf: { cacheTtl: 0 } });
+    const ms = Date.now() - t0;
+    const out = { id: c.id, name: c.name, url: c.url, code: r.status, ms, state: r.ok ? 'up' : 'down', note: r.ok ? '' : 'HTTP ' + r.status };
+    if (r.ok && c.fresh) {
+      const j = await r.json();
+      const age = (Date.now() / 1000 - (j.runTime || 0)) / 3600;
+      out.note = `model run ${j.run || '?'} · ${age.toFixed(1)} h old`;
+      out.age = age;
+      if (age > 18) out.state = 'down'; else if (age > 10) out.state = 'warn';
+    } else if (ms > 4000 && out.state === 'up') { out.state = 'warn'; out.note = 'slow'; }
+    return out;
+  } catch (e) { return { id: c.id, name: c.name, url: c.url, state: 'down', ms: Date.now() - t0, note: String(e) }; }
+}
+
+async function lastWorkflow(env) {
+  try {
+    const h = { 'User-Agent': UA, Accept: 'application/vnd.github+json' };
+    if (env.GH_TOKEN) h.Authorization = 'Bearer ' + String(env.GH_TOKEN).trim();
+    const r = await fetch('https://api.github.com/repos/TpGrC/gustline/actions/workflows/forecast.yml/runs?per_page=5', { headers: h });
+    if (!r.ok) return { error: 'GitHub ' + r.status };
+    const j = await r.json();
+    return { runs: (j.workflow_runs || []).map(x => ({ when: x.created_at, event: x.event, status: x.status, result: x.conclusion, url: x.html_url })) };
+  } catch (e) { return { error: String(e) }; }
+}
+
+async function traffic(env) {
+  if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) return { setup: true };
+  const q = `query($a:String!,$s:Time!,$e:Time!){viewer{accounts(filter:{accountTag:$a}){
+    hosts:rumPageloadEventsAdaptiveGroups(limit:20,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count sum{visits} dimensions{requestHost}}
+    countries:rumPageloadEventsAdaptiveGroups(limit:10,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count dimensions{countryName}}
+    pages:rumPageloadEventsAdaptiveGroups(limit:10,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count dimensions{requestHost requestPath}}
+    refs:rumPageloadEventsAdaptiveGroups(limit:10,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count dimensions{refererHost}}
+  }}}`;
+  const ask = async (hours) => {
+    const e = new Date(), s = new Date(e - hours * 3600e3);
+    const r = await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: { Authorization: 'Bearer ' + String(env.CF_API_TOKEN).trim(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, variables: { a: String(env.CF_ACCOUNT_ID).trim(), s: s.toISOString(), e: e.toISOString() } }) });
+    const j = await r.json();
+    if (j.errors && j.errors.length) throw new Error(j.errors.map(x => x.message).join('; '));
+    return j.data.viewer.accounts[0];
+  };
+  try { const [d1, d7] = await Promise.all([ask(24), ask(24 * 7)]); return { d1, d7 }; } catch (e) { return { error: String(e) }; }
+}
+
+function authOk(req, env) {
+  if (!env.ADMIN_PASSWORD) return false;
+  const h = req.headers.get('Authorization') || '';
+  if (!h.startsWith('Basic ')) return false;
+  try { const [, pw] = atob(h.slice(6)).split(':'); return pw === String(env.ADMIN_PASSWORD).trim(); } catch (e) { return false; }
+}
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function adminPage(req, env) {
+  if (!env.ADMIN_PASSWORD) return new Response('Set the ADMIN_PASSWORD secret first.', { status: 503 });
+  if (!authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
+  const [checks, wf, tr] = await Promise.all([Promise.all(CHECKS.map(runCheck)), lastWorkflow(env), traffic(env)]);
+  const bad = checks.filter(c => c.state !== 'up');
+  const report = bad.length ? `Halewood dashboard problem report (${new Date().toISOString()}):\n` + bad.map(c => `- ${c.name}: ${c.state.toUpperCase()} ${c.note || ''} (${c.url}, HTTP ${c.code ?? '-'}, ${c.ms} ms)`).join('\n') +
+    (wf.runs ? `\nLast forecast workflow runs:\n` + wf.runs.map(r => `  ${r.when} ${r.event} ${r.status}/${r.result}`).join('\n') : '') : '';
+  const dot = s => s === 'up' ? '#2fd27a' : s === 'warn' ? '#ffbe3c' : '#ff5a5a';
+  const rows = checks.map(c => `<tr><td><span class="d" style="background:${dot(c.state)}"></span>${esc(c.name)}</td><td>${c.state === 'up' ? 'Operational' : c.state === 'warn' ? 'Warning' : 'DOWN'}</td><td>${esc(c.note)}</td><td class="r">${c.ms} ms</td></tr>`).join('');
+  const wfRows = wf.runs ? wf.runs.map(r => `<tr><td>${esc(new Date(r.when).toLocaleString('en-GB', { timeZone: 'Europe/Athens' }))}</td><td>${esc(r.event)}</td><td style="color:${r.result === 'success' ? '#2fd27a' : r.status !== 'completed' ? '#ffbe3c' : '#ff5a5a'}">${esc(r.result || r.status)}</td></tr>`).join('') : `<tr><td colspan="3">${esc(wf.error)}</td></tr>`;
+  let traf;
+  if (tr.setup) traf = `<p class="m">Visitor counting isn't connected yet. Add the CF_API_TOKEN and CF_ACCOUNT_ID secrets (see setup notes).</p>`;
+  else if (tr.error) traf = `<p class="m">Couldn't load traffic: ${esc(tr.error)}</p>`;
+  else {
+    const sum = (a, host) => (a.hosts || []).filter(x => !host || x.dimensions.requestHost.replace(/^www\./, '') === host).reduce((t, x) => [t[0] + x.count, t[1] + (x.sum.visits || 0)], [0, 0]);
+    const card = (label, host) => { const a = sum(tr.d1, host), b = sum(tr.d7, host); return `<div class="k"><b>${label}</b><div class="big">${b[1]}</div><div class="m">visits · 7 days</div><div class="m">${a[1]} visits · ${a[0]} page views today (24 h)</div></div>`; };
+    const list = (arr, f) => (arr || []).map(x => `<tr><td>${esc(f(x.dimensions) || '(direct)')}</td><td class="r">${x.count}</td></tr>`).join('') || '<tr><td class="m">No data yet</td></tr>';
+    traf = `<div class="kp">${card('All sites')}${card('windrova.com', 'windrova.com')}${card('halewoodsystems.com', 'halewoodsystems.com')}</div>
+      <div class="two"><div><h3>Top pages · 7 days</h3><table>${list(tr.d7.pages, d => d.requestHost + d.requestPath)}</table></div>
+      <div><h3>Countries · 7 days</h3><table>${list(tr.d7.countries, d => d.countryName)}</table></div>
+      <div><h3>Where visitors came from · 7 days</h3><table>${list(tr.d7.refs, d => d.refererHost)}</table></div></div>`;
+  }
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="120"><title>Halewood dashboard</title>
+<style>body{margin:0;background:#07090d;color:#e9eef5;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}main{max-width:1100px;margin:0 auto;padding:28px 18px 60px}
+h1{font-size:24px;margin:0}h2{font-size:18px;margin:34px 0 12px}h3{font-size:14px;color:#8a97a8;margin:18px 0 8px;font-weight:600}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.m{color:#8a97a8;font-size:13px}
+.sum{margin-top:18px;padding:16px 18px;border-radius:12px;font-weight:600}.ok{background:rgba(47,210,122,.12);color:#2fd27a}.bad{background:rgba(255,90,90,.12);color:#ff8080}
+table{width:100%;border-collapse:collapse;background:#11161e;border:1px solid #1e2632;border-radius:12px;overflow:hidden}td{padding:11px 14px;border-bottom:1px solid #1e2632;vertical-align:top}tr:last-child td{border:0}.r{text-align:right;white-space:nowrap}
+.d{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:10px}.scroll{overflow-x:auto}
+.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.k{background:#11161e;border:1px solid #1e2632;border-radius:12px;padding:16px}.big{font-size:34px;font-weight:800}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+button{background:#2f7bff;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-weight:600;font-size:15px;cursor:pointer;min-height:44px}pre{white-space:pre-wrap;background:#11161e;border:1px solid #1e2632;border-radius:12px;padding:14px;font-size:13px;color:#c9d3df}
+a{color:#7fb0ff}</style></head><body><main>
+<div class="top"><div><h1>Halewood dashboard</h1><div class="m">Checked ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/Athens' })} (Athens) · refreshes every 2 minutes</div></div><a href="">Refresh now</a></div>
+<div class="sum ${bad.length ? 'bad' : 'ok'}">${bad.length ? `⚠ ${bad.length} problem${bad.length > 1 ? 's' : ''} found` : '✓ All systems operational'}</div>
+${bad.length ? `<h2>Fix it with AI</h2><p class="m">Copy this report and paste it to Claude.</p><pre id="rep">${esc(report)}</pre><button onclick="navigator.clipboard.writeText(document.getElementById('rep').textContent).then(()=>this.textContent='Copied ✓')">Copy problem report</button>` : ''}
+<h2>Status</h2><div class="scroll"><table>${rows}</table></div>
+<h2>Traffic</h2>${traf}
+<h2>Windrova forecast updates (GitHub)</h2><div class="scroll"><table>${wfRows}</table></div>
+<p class="m" style="margin-top:30px">Only you can open this page (password protected).</p>
+</main></body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+
+/* Cron: GitHub sometimes skips scheduled runs. If the forecast is getting old, start the update ourselves. */
+async function watchdog(env) {
+  if (!env.GH_TOKEN) return;
+  try {
+    const r = await fetch('https://windrova.com/data/latest.json?nocache=' + Date.now(), { headers: { 'User-Agent': UA } });
+    const j = await r.json();
+    const age = (Date.now() / 1000 - j.runTime) / 3600;
+    if (age < 10.5) return;
+    const w = await lastWorkflow(env);
+    if (w.runs && w.runs.some(x => x.status !== 'completed')) return;   // one is already running
+    await fetch('https://api.github.com/repos/TpGrC/gustline/actions/workflows/forecast.yml/dispatches', {
+      method: 'POST', headers: { 'User-Agent': UA, Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + String(env.GH_TOKEN).trim() },
+      body: JSON.stringify({ ref: 'main' }) });
+  } catch (e) { }
+}
+
 const num = (v, lo, hi) => { const n = parseFloat(v); return isFinite(n) && n >= lo && n <= hi ? n : null; };
 
 export default {
+  async scheduled(event, env, ctx) { ctx.waitUntil(watchdog(env)); },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return cors(req, new Response(null, { headers: { 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } }));
     if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
 
     if (url.pathname === '/health') return cors(req, new Response('ok'));
+    if (url.pathname === '/admin') return adminPage(req, env);
 
     if (url.pathname === '/met') {
       const lat = num(url.searchParams.get('lat'), -90, 90), lon = num(url.searchParams.get('lon'), -180, 180);
