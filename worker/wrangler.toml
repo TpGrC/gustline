@@ -1,0 +1,14 @@
+name = "windrova-api"
+main = "windrova-api.js"
+compatibility_date = "2026-11-01"
+account_id = "e2e39f7d447e8d78abfea9d4b2d7ec83"
+workers_dev = true
+# keep secrets (ADMIN_PASSWORD, STRIPE_KEY, CF_API_TOKEN, GH_TOKEN) as they are in the dashboard
+keep_vars = true
+
+[triggers]
+# hourly check: if GitHub skipped the forecast update, start it
+crons = ["50 * * * *"]
+
+[observability]
+enabled = true
