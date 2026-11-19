@@ -166,7 +166,7 @@ async function adminPage(req, env) {
   if (kl.error) kyroHtml = `<p class="m">Couldn't load licences: ${esc(kl.error)}</p>`;
   else {
     const L = kl.licences || [], pcs = L.reduce((t, x) => t + Object.keys(x.pcs || {}).length, 0);
-    kyroHtml = `<div class="kp"><div class="k"><b>Activated keys</b><div class="big">${L.length}</div><div class="m">${pcs} PCs in total · max 3 per key</div></div><div class="k"><b>Blocked keys</b><div class="big">${(kl.blocked || []).length}</div><div class="m">blocked keys stop working on every PC</div></div></div>
+    kyroHtml = `<div class="kp"><div class="k"><b>Activated keys</b><div class="big">${L.length}</div><div class="m">${pcs} PCs in total · max 3 per key</div></div><div class="k"><b>Keys sold</b><div class="big">${(kl.sales || []).length}</div><div class="m">keys ready to sell: ${Object.entries(kl.pool || {}).map(([p, n]) => p + ' ' + n).join(' · ')}</div></div><div class="k"><b>Blocked keys</b><div class="big">${(kl.blocked || []).length}</div><div class="m">blocked keys stop working on every PC</div></div></div>
       <h3>Keys</h3><div class="scroll"><table>${L.sort((a, b) => b.first - a.first).map(x => { const n = Object.keys(x.pcs || {}).length, bl = (kl.blocked || []).includes(x.serial), last = Math.max(...Object.values(x.pcs || {}).map(p => p.seen || 0), 0);
         return `<tr><td>Key #${x.serial}${bl ? ' <b style="color:#ff8080">BLOCKED</b>' : ''}</td><td>${n}/3 PCs</td><td class="m">last seen ${last ? esc(new Date(last).toLocaleDateString('en-GB')) : '-'}</td><td class="r"><a href="/admin/kyro?op=${bl ? 'unblock' : 'block'}&serial=${x.serial}">${bl ? 'Unblock' : 'Block'}</a> · <a href="/admin/kyro?op=reset&serial=${x.serial}">Reset PCs</a></td></tr>`; }).join('') || '<tr><td class="m">No activations yet</td></tr>'}</table></div>`;
   }
@@ -214,6 +214,32 @@ async function watchdog(env) {
 /* ================= Kyrofix licences: online activation, max 3 PCs per key, blockable keys ================= */
 // Public half of the Halewood key that signs Kyrofix licence keys (the private half never leaves the owner's PC).
 const KYRO_KEY_PUB = '3264b14662072bd73bcb2d78abb98422e2e8bf855c41e439e40afbc449f4b970';
+// Gumroad product ids (public). A buyer's Gumroad licence key is exchanged for a Kyrofix key at halewoodsystems.com/activate/
+const KYRO_PRODUCTS = { driver: '', cleaner: '', backup: '' };
+const KYRO_NAMES = { driver: 'Kyrofix Driver Updater Pro', cleaner: 'Kyrofix Cleaner Pro', backup: 'Kyrofix Backup Pro' };
+async function gumroadCheck(license) {
+  for (const [prod, pid] of Object.entries(KYRO_PRODUCTS)) {
+    if (!pid) continue;
+    const r = await fetch('https://api.gumroad.com/v2/licenses/verify', { method: 'POST', body: new URLSearchParams({ product_id: pid, license_key: license, increment_uses_count: 'false' }) }).catch(() => null);
+    if (!r) return { error: 'net' };
+    const j = await r.json().catch(() => ({}));
+    if (j.success && j.purchase) return { prod, p: j.purchase };
+  }
+  return null;
+}
+async function redeem(req, env) {
+  const body = await req.json().catch(() => ({}));
+  const license = String(body.license || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 64);
+  if (license.length < 16) return { ok: false, reason: 'bad' };
+  const g = await gumroadCheck(license);
+  if (!g) return { ok: false, reason: 'bad' };
+  if (g.error) return { ok: false, reason: 'net' };
+  const p = g.p;
+  if (p.refunded || p.chargebacked || p.disputed) { await kyro(env, 'refund', { license }); return { ok: false, reason: 'refunded' }; }
+  const lifetime = /life/i.test(String(p.variants || '') + ' ' + String(p.variants_and_quantity || ''));
+  const r = await (await kyro(env, 'redeem', { license, product: g.prod, lifetime, created: Date.parse(p.sale_timestamp || p.created_at) || Date.now(), email: String(p.email || '').slice(0, 120) })).json();
+  return r.ok ? { ...r, name: KYRO_NAMES[g.prod] } : r;
+}
 const KYRO_MAX_PCS = 3, KYRO_TOKEN_DAYS = 30, KYRO_STALE_DAYS = 45;
 const hex = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
 const toHex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
@@ -261,18 +287,57 @@ export class Licenses {
     if (op === 'list') {
       const all = await this.ctx.storage.list({ prefix: 'lic:' });
       const blocked = (await this.ctx.storage.get('blocked')) || [];
-      return json({ blocked, licences: [...all.values()] });
+      const pool = {}; for (const p of Object.keys(KYRO_PRODUCTS)) pool[p] = ((await this.ctx.storage.get('pool:' + p)) || []).length;
+      const sales = [...(await this.ctx.storage.list({ prefix: 'gr:' })).values()].map(x => ({ product: x.product, lifetime: x.lifetime, when: x.when, serial: x.serial }));
+      return json({ blocked, licences: [...all.values()], pool, sales });
     }
     if (op === 'block' || op === 'unblock') {
       const s = Number(body.serial); let b = (await this.ctx.storage.get('blocked')) || [];
       b = b.filter(x => x !== s); if (op === 'block') b.push(s);
       await this.ctx.storage.put('blocked', b); return json({ ok: true, blocked: b });
     }
+    if (op === 'pool') {
+      // key pool made on the owner's PC; upload is signed with the Kyrofix signing key, so nobody else can add keys
+      const data = String(body.data || ''), sig = String(body.sig || '');
+      const pub = await crypto.subtle.importKey('raw', hex(KYRO_KEY_PUB), ED, false, ['verify']);
+      const ok = await crypto.subtle.verify(ED, pub, hex(sig), new Uint8Array([...new TextEncoder().encode('KYROPOOL'), ...new TextEncoder().encode(data)])).catch(() => false);
+      if (!ok) return json({ ok: false, reason: 'sig' }, 403);
+      const d = JSON.parse(data), last = (await this.ctx.storage.get('poolts')) || 0;
+      if (!(d.ts > last)) return json({ ok: false, reason: 'replay' }, 403);
+      await this.ctx.storage.put('poolts', d.ts);
+      const out = {};
+      for (const prod of Object.keys(KYRO_PRODUCTS)) {
+        const cur = (await this.ctx.storage.get('pool:' + prod)) || [];
+        for (const key of (d.keys[prod] || [])) if (!cur.includes(key) && await readKey(key)) cur.push(key);
+        await this.ctx.storage.put('pool:' + prod, cur); out[prod] = cur.length;
+      }
+      return json({ ok: true, pool: out });
+    }
+    if (op === 'redeem') {
+      const id = 'gr:' + body.license;
+      const had = await this.ctx.storage.get(id);
+      if (had) return json({ ok: true, ...had });
+      const pool = (await this.ctx.storage.get('pool:' + body.product)) || [];
+      if (!pool.length) return json({ ok: false, reason: 'empty' });
+      const key = pool.shift(), k = await readKey(key);
+      const rec = { key, product: body.product, lifetime: !!body.lifetime, expires: body.lifetime ? null : new Date(body.created + 365 * 864e5).toISOString().slice(0, 10) };
+      if (!body.lifetime) await this.ctx.storage.put('exp:' + k.serial, body.created + 365 * 864e5);
+      await this.ctx.storage.put(id, { ...rec, serial: k.serial, email: body.email, when: Date.now() });
+      await this.ctx.storage.put('pool:' + body.product, pool);
+      return json({ ok: true, ...rec });
+    }
+    if (op === 'refund') {   // refunded or charged back on Gumroad: the key stops working everywhere
+      const had = await this.ctx.storage.get('gr:' + body.license);
+      if (had) { let b = (await this.ctx.storage.get('blocked')) || []; if (!b.includes(had.serial)) b.push(had.serial); await this.ctx.storage.put('blocked', b); }
+      return json({ ok: true });
+    }
     if (op === 'reset') { await this.ctx.storage.delete('lic:' + Number(body.serial)); return json({ ok: true }); }
     // activate / deactivate need a real Halewood-signed key
     const k = await readKey(body.key);
     const mid = String(body.mid || '').replace(/[^a-f0-9]/g, '').slice(0, 64);
     if (!k || mid.length < 16) return json({ ok: false, reason: 'bad' });
+    const soldExp = await this.ctx.storage.get('exp:' + k.serial);   // 1-year sale: expiry kept here, key itself has none
+    if (soldExp && (!k.expires || soldExp < k.expires)) k.expires = soldExp;
     if (k.expires && k.expires < Date.now()) return json({ ok: false, reason: 'expired', expires: new Date(k.expires).toISOString().slice(0, 10) });
     if (((await this.ctx.storage.get('blocked')) || []).includes(k.serial)) return json({ ok: false, reason: 'blocked' });
     const id = 'lic:' + k.serial, now = Date.now();
@@ -312,12 +377,20 @@ export default {
   async email(message, env, ctx) { await receiveMail(message, env); },
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
-    if (req.method === 'OPTIONS') return cors(req, new Response(null, { headers: { 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } }));
+    if (req.method === 'OPTIONS' && !url.pathname.startsWith('/kyro/')) return cors(req, new Response(null, { headers: { 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } }));
     if (url.pathname === '/kyro/activate' || url.pathname === '/kyro/deactivate') {
       if (req.method !== 'POST') return new Response('POST only', { status: 405 });
       const body = await req.json().catch(() => ({}));
       const r = await kyro(env, url.pathname.split('/').pop(), body);
       return new Response(r.body, { status: r.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    }
+    if (url.pathname === '/kyro/redeem' || url.pathname === '/kyro/pool') {
+      const site = ['https://halewoodsystems.com', 'https://www.halewoodsystems.com'];
+      const o = req.headers.get('Origin') || '', h = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': site.includes(o) ? o : site[0], 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST' };
+      if (req.method === 'OPTIONS') return new Response(null, { headers: h });
+      if (req.method !== 'POST') return new Response('POST only', { status: 405 });
+      if (url.pathname === '/kyro/pool') { const r = await kyro(env, 'pool', await req.json().catch(() => ({}))); return new Response(r.body, { status: r.status, headers: h }); }
+      return new Response(JSON.stringify(await redeem(req, env)), { headers: h });
     }
     if (url.pathname === '/kyro/pubkey') return kyro(env, 'pubkey');
     if (url.pathname === '/admin/kyro') {
