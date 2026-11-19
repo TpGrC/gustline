@@ -215,7 +215,7 @@ async function watchdog(env) {
 // Public half of the Halewood key that signs Kyrofix licence keys (the private half never leaves the owner's PC).
 const KYRO_KEY_PUB = '3264b14662072bd73bcb2d78abb98422e2e8bf855c41e439e40afbc449f4b970';
 // Gumroad product ids (public). A buyer's Gumroad licence key is exchanged for a Kyrofix key at halewoodsystems.com/activate/
-const KYRO_PRODUCTS = { driver: '', cleaner: '', backup: '' };
+const KYRO_PRODUCTS = { driver: 'SNpQyqRhBmnQhAtpDi9gEg==', cleaner: 'AEeC8eQQjzKvx-J_A15b1A==', backup: 'fTQozJDwsFyjDSiV7EV5kw==' };
 const KYRO_NAMES = { driver: 'Kyrofix Driver Updater Pro', cleaner: 'Kyrofix Cleaner Pro', backup: 'Kyrofix Backup Pro' };
 async function gumroadCheck(license) {
   for (const [prod, pid] of Object.entries(KYRO_PRODUCTS)) {
