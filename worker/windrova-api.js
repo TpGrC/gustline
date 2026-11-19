@@ -67,7 +67,8 @@ async function lastWorkflow(env) {
 }
 
 async function traffic(env) {
-  if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) return { setup: true };
+  const ACC = env.CF_ACCOUNT_ID || 'e2e39f7d447e8d78abfea9d4b2d7ec83';
+  if (!env.CF_API_TOKEN) return { setup: true };
   const q = `query($a:String!,$s:Time!,$e:Time!){viewer{accounts(filter:{accountTag:$a}){
     hosts:rumPageloadEventsAdaptiveGroups(limit:20,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count sum{visits} dimensions{requestHost}}
     countries:rumPageloadEventsAdaptiveGroups(limit:10,filter:{datetime_geq:$s,datetime_lt:$e},orderBy:[count_DESC]){count dimensions{countryName}}
@@ -77,12 +78,37 @@ async function traffic(env) {
   const ask = async (hours) => {
     const e = new Date(), s = new Date(e - hours * 3600e3);
     const r = await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: { Authorization: 'Bearer ' + String(env.CF_API_TOKEN).trim(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: q, variables: { a: String(env.CF_ACCOUNT_ID).trim(), s: s.toISOString(), e: e.toISOString() } }) });
+      body: JSON.stringify({ query: q, variables: { a: String(ACC).trim(), s: s.toISOString(), e: e.toISOString() } }) });
     const j = await r.json();
     if (j.errors && j.errors.length) throw new Error(j.errors.map(x => x.message).join('; '));
     return j.data.viewer.accounts[0];
   };
   try { const [d1, d7] = await Promise.all([ask(24), ask(24 * 7)]); return { d1, d7 }; } catch (e) { return { error: String(e) }; }
+}
+
+
+async function earnings(env) {
+  if (!env.STRIPE_KEY) return { setup: true };
+  const h = { Authorization: 'Bearer ' + String(env.STRIPE_KEY).trim() };
+  try {
+    const since = Math.floor(Date.now() / 1000) - 30 * 86400;
+    const [b, c] = await Promise.all([
+      fetch('https://api.stripe.com/v1/balance', { headers: h }).then(r => r.json()),
+      fetch('https://api.stripe.com/v1/charges?limit=100&created[gte]=' + since, { headers: h }).then(r => r.json()),
+    ]);
+    if (b.error) throw new Error(b.error.message);
+    if (c.error) throw new Error(c.error.message);
+    const paid = (c.data || []).filter(x => x.paid && !x.refunded);
+    const eur = a => (a / 100).toLocaleString('en-GB', { style: 'currency', currency: 'EUR' });
+    const sum = arr => arr.reduce((t, x) => t + x.amount, 0);
+    const week = paid.filter(x => x.created > Date.now() / 1000 - 7 * 86400);
+    return {
+      available: eur(sum((b.available || []).filter(x => x.currency === 'eur'))),
+      pending: eur(sum((b.pending || []).filter(x => x.currency === 'eur'))),
+      d30: eur(sum(paid)), n30: paid.length, d7: eur(sum(week)), n7: week.length,
+      last: paid.slice(0, 8).map(x => ({ when: x.created, amount: eur(x.amount), what: x.description || (x.metadata && x.metadata.product) || 'Payment' })),
+    };
+  } catch (e) { return { error: String(e) }; }
 }
 
 function authOk(req, env) {
@@ -97,7 +123,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 async function adminPage(req, env) {
   if (!env.ADMIN_PASSWORD) return new Response('Set the ADMIN_PASSWORD secret first.', { status: 503 });
   if (!authOk(req, env)) return new Response('Login required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Halewood dashboard"' } });
-  const [checks, wf, tr] = await Promise.all([Promise.all(CHECKS.map(runCheck)), lastWorkflow(env), traffic(env)]);
+  const [checks, wf, tr, money] = await Promise.all([Promise.all(CHECKS.map(runCheck)), lastWorkflow(env), traffic(env), earnings(env)]);
   const bad = checks.filter(c => c.state !== 'up');
   const report = bad.length ? `Halewood dashboard problem report (${new Date().toISOString()}):\n` + bad.map(c => `- ${c.name}: ${c.state.toUpperCase()} ${c.note || ''} (${c.url}, HTTP ${c.code ?? '-'}, ${c.ms} ms)`).join('\n') +
     (wf.runs ? `\nLast forecast workflow runs:\n` + wf.runs.map(r => `  ${r.when} ${r.event} ${r.status}/${r.result}`).join('\n') : '') : '';
@@ -105,7 +131,7 @@ async function adminPage(req, env) {
   const rows = checks.map(c => `<tr><td><span class="d" style="background:${dot(c.state)}"></span>${esc(c.name)}</td><td>${c.state === 'up' ? 'Operational' : c.state === 'warn' ? 'Warning' : 'DOWN'}</td><td>${esc(c.note)}</td><td class="r">${c.ms} ms</td></tr>`).join('');
   const wfRows = wf.runs ? wf.runs.map(r => `<tr><td>${esc(new Date(r.when).toLocaleString('en-GB', { timeZone: 'Europe/Athens' }))}</td><td>${esc(r.event)}</td><td style="color:${r.result === 'success' ? '#2fd27a' : r.status !== 'completed' ? '#ffbe3c' : '#ff5a5a'}">${esc(r.result || r.status)}</td></tr>`).join('') : `<tr><td colspan="3">${esc(wf.error)}</td></tr>`;
   let traf;
-  if (tr.setup) traf = `<p class="m">Visitor counting isn't connected yet. Add the CF_API_TOKEN and CF_ACCOUNT_ID secrets (see setup notes).</p>`;
+  if (tr.setup) traf = `<p class="m">Visitor counting isn't connected yet (needs the CF_API_TOKEN secret).</p>`;
   else if (tr.error) traf = `<p class="m">Couldn't load traffic: ${esc(tr.error)}</p>`;
   else {
     const sum = (a, host) => (a.hosts || []).filter(x => !host || x.dimensions.requestHost.replace(/^www\./, '') === host).reduce((t, x) => [t[0] + x.count, t[1] + (x.sum.visits || 0)], [0, 0]);
@@ -116,6 +142,13 @@ async function adminPage(req, env) {
       <div><h3>Countries · 7 days</h3><table>${list(tr.d7.countries, d => d.countryName)}</table></div>
       <div><h3>Where visitors came from · 7 days</h3><table>${list(tr.d7.refs, d => d.refererHost)}</table></div></div>`;
   }
+  let earn;
+  if (money.setup) earn = `<p class="m">Earnings aren't connected yet (needs the STRIPE_KEY secret).</p>`;
+  else if (money.error) earn = `<p class="m">Couldn't load earnings: ${esc(money.error)}</p>`;
+  else earn = `<div class="kp"><div class="k"><b>Last 7 days</b><div class="big">${money.d7}</div><div class="m">${money.n7} payments</div></div>
+      <div class="k"><b>Last 30 days</b><div class="big">${money.d30}</div><div class="m">${money.n30} payments</div></div>
+      <div class="k"><b>Stripe balance</b><div class="big">${money.available}</div><div class="m">${money.pending} on the way</div></div></div>
+      <h3>Latest payments</h3><table>${money.last.map(x => `<tr><td>${esc(new Date(x.when * 1000).toLocaleString('en-GB', { timeZone: 'Europe/Athens' }))}</td><td>${esc(x.what)}</td><td class="r">${x.amount}</td></tr>`).join('') || '<tr><td class="m">No payments yet</td></tr>'}</table>`;
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta http-equiv="refresh" content="120"><title>Halewood dashboard</title>
 <style>body{margin:0;background:#07090d;color:#e9eef5;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}main{max-width:1100px;margin:0 auto;padding:28px 18px 60px}
 h1{font-size:24px;margin:0}h2{font-size:18px;margin:34px 0 12px}h3{font-size:14px;color:#8a97a8;margin:18px 0 8px;font-weight:600}
@@ -132,6 +165,7 @@ a{color:#7fb0ff}</style></head><body><main>
 ${bad.length ? `<h2>Fix it with AI</h2><p class="m">Copy this report and paste it to Claude.</p><pre id="rep">${esc(report)}</pre><button onclick="navigator.clipboard.writeText(document.getElementById('rep').textContent).then(()=>this.textContent='Copied ✓')">Copy problem report</button>` : ''}
 <h2>Status</h2><div class="scroll"><table>${rows}</table></div>
 <h2>Traffic</h2>${traf}
+<h2>Earnings</h2>${earn}
 <h2>Windrova forecast updates (GitHub)</h2><div class="scroll"><table>${wfRows}</table></div>
 <p class="m" style="margin-top:30px">Only you can open this page (password protected).</p>
 </main></body></html>`;
