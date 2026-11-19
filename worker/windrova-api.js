@@ -44,6 +44,8 @@ async function runCheck(c) {
     const r = await fetch(c.url.includes('?') ? c.url : c.url + '?nocache=' + t0, { headers: { 'User-Agent': UA }, cf: { cacheTtl: 0 } });
     const ms = Date.now() - t0;
     const out = { id: c.id, name: c.name, url: c.url, code: r.status, ms, state: r.ok ? 'up' : 'down', note: r.ok ? '' : 'HTTP ' + r.status };
+    // 429 / 403 = the site answered but limits automatic checks (itch.io does this): it's online
+    if (r.status === 429 || r.status === 403) { out.state = 'up'; out.note = 'online (site limits automatic checks)'; }
     if (r.ok && c.fresh) {
       const j = await r.json();
       const age = (Date.now() / 1000 - (j.runTime || 0)) / 3600;
