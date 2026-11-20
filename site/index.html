@@ -41,6 +41,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 #premBtn{height:42px;display:flex;align-items:center;gap:6px;padding:0 13px;margin-left:auto;font-weight:700;color:#1a1408;background:linear-gradient(135deg,#ffd76a,#f2a93b);border-color:rgba(255,215,106,.6)}
 body:not(.sales) #premBtn{display:none!important}
 body:not(.sales) #donBtn{margin-left:auto}
+.inapp #donBtn,.inapp .donRow{display:none!important}
 #premBtn svg{width:17px;height:17px}
 #premBtn.on{background:var(--panel);color:var(--gold);border-color:var(--line)}
 #shareBtn,#donBtn{width:42px;height:42px;display:grid;place-items:center}#donBtn{text-decoration:none;font-size:18px}
@@ -1212,7 +1213,7 @@ function openSettings(){
   <div class="row"><span>${t('particles')}</span><button class="sw ${S.flow?'on':''}" id="sFlow" aria-pressed="${S.flow}"></button></div>
   ${SALES?'':'<!--'}<div class="row"><span>${t('premium')}${S.premium?'<span class="badge">ON</span>':''}</span><button class="btn gold" style="width:auto;padding:8px 14px" id="sPrem">${S.premium?t('active'):t('upgrade')}</button></div>${SALES?'':'-->'}
   ${installEvt?`<div class="row"><span>${t('install')}</span><button class="btn" style="width:auto;padding:8px 14px;background:var(--acc);color:#fff" id="sInstall">${t('install')}</button></div>`:''}
-  <div class="row"><span>❤️ ${t('donate')}</span><a class="btn" href="https://buy.stripe.com/14AcMY4rr24U6Pqec0dUY02" target="_blank" rel="noopener" style="width:auto;padding:8px 14px;background:#e0446a;color:#fff;text-decoration:none">${t('donate')}</a></div>
+  <div class="row donRow"><span>❤️ ${t('donate')}</span><a class="btn" href="https://buy.stripe.com/14AcMY4rr24U6Pqec0dUY02" target="_blank" rel="noopener" style="width:auto;padding:8px 14px;background:#e0446a;color:#fff;text-decoration:none">${t('donate')}</a></div>
   <div class="row"><a href="privacy.html" style="color:var(--acc)">${t('privacy')}</a><span style="color:var(--dim);font-size:11px">Windrova 2.4 · Halewood Systems</span></div>`;
   $('settings').classList.add('show');
 }
