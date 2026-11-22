@@ -1307,7 +1307,8 @@ if(/[?&]capture=1/.test(location.search))window.__wr={map,S,LAYERS,setIdx,showSt
 sizeAll();updateGeo();applyLang();resetParticles();loadMeta();loadCities(1);if(S.eq)drawQuakes();if(S.fire)drawFires();if(S.ltn)drawLightning();if(S.fly)drawFlights();if(S.ship)drawShips();if(LAYERS[S.layer].tiles)updateLive();
 }
 </script>
-<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "1ae1639f8474498a89536545d9edbd7e"}'></script>
+<script>(function(){var me=false;try{var q=new URLSearchParams(location.search).get('me');if(q==='1')localStorage.setItem('wr_me','1');if(q==='0')localStorage.removeItem('wr_me');me=localStorage.getItem('wr_me')==='1';}catch(e){}
+if(!me){var b=document.createElement('script');b.defer=true;b.src='https://static.cloudflareinsights.com/beacon.min.js';b.setAttribute('data-cf-beacon','{"token": "1ae1639f8474498a89536545d9edbd7e"}');document.body.appendChild(b);}})();</script>
 <style>.act{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.act div{border-radius:10px;padding:8px 4px;text-align:center;font-size:11px;background:rgba(255,255,255,.05)}.act b{display:block;font-size:18px}.act .g{color:#2ecc71}.act .c{color:#f0b90b}.act .n{color:#ef4444}.actw{font-size:11px;opacity:.75;margin:-4px 0 8px}</style>
 <script>
 /* Activity modes: go / caution / no-go for the next hours */
