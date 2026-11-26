@@ -1247,18 +1247,21 @@ if(IN_APP&&document.getElementById('donBtn'))document.getElementById('donBtn').r
 const PLAY_BUY=IN_APP&&!!(window.WindrovaApp&&WindrovaApp.buy)&&(!WindrovaApp.canBuy||WindrovaApp.canBuy()); // app 1.2+: Google Play Billing
 window.wrPlay=active=>{ // called by the Android app with the Play subscription state
   if(active){if(!store.get('playSub',false)||!S.premium){store.set('playSub',true);store.set('premium',true);if(!S.premium){S.premium=true;toast('✅ '+t('thanksPrem'),{ms:5000});setTimeout(()=>location.reload(),1500);}}}
-  else if(store.get('playSub',false)){store.set('playSub',false);if(!store.get('grKey',null)){store.set('premium',false);location.reload();}}};
+  else if(store.get('playSub',false)){store.set('playSub',false);if(!store.get('grKey',null)&&!store.get('ownerKey',false)){store.set('premium',false);location.reload();}}};
 async function grVerify(key){const r=await fetch('https://api.gumroad.com/v2/licenses/verify',{method:'POST',body:new URLSearchParams({product_id:GR_PID,license_key:key,increment_uses_count:'false'})});
   if(r.status>=500)throw new Error('net');const j=await r.json().catch(()=>({}));const p=j.purchase||{};
   return !!(j.success&&!p.refunded&&!p.chargebacked&&!p.disputed&&!p.subscription_ended_at&&!p.subscription_failed_at);}
+const OWNER_KEYS=['c72764e495017683e4ed63ecf1596557ba3937161e080f5d216d947feb464f4a']; // SHA-256 of keys that give Premium for good (owner / family)
+const sha256=async x=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(x)))].map(b=>b.toString(16).padStart(2,'0')).join('');
 async function activateKey(key){key=(key||'').trim();const msg=$('keyMsg');if(!key)return;msg.textContent=t('loading');
+  try{if(OWNER_KEYS.includes(await sha256(key.toUpperCase()))){S.premium=true;store.set('premium',true);store.set('ownerKey',true);$('premium').classList.remove('show');toast('✅ '+t('thanksPrem'),{ms:6000});setTimeout(()=>location.reload(),1800);return;}}catch(e){}
   try{if(await grVerify(key)){S.premium=true;store.set('premium',true);store.set('grKey',key);store.set('grAt',Date.now());$('premium').classList.remove('show');toast('✅ '+t('thanksPrem'),{ms:6000});setTimeout(()=>location.reload(),1800);}
     else msg.textContent=t('badKey');}catch(e){msg.textContent=t('netErr');}}
 $('premium').addEventListener('click',e=>{const pl=e.target.closest('[data-plan]');if(pl){PAYSEL=pl.dataset.plan;openPremium();return;}
   if(e.target.closest('[data-havekey]')){$('keyBox').style.display='block';$('keyIn').focus();return;}
   if(e.target.closest('[data-activate]')){activateKey($('keyIn').value);return;}
   if(SALES&&e.target.closest('[data-buy]')){if(PLAY_BUY){WindrovaApp.buy(PAYSEL==='y'?'yearly':'monthly');return;}window.open(GR_URL+'?wanted=true'+(PAYSEL==='y'?'&recurrence=yearly':''),'_blank','noopener');}});
-(()=>{if(!SALES)return;const k=store.get('grKey',null);if(!k)return;const at=store.get('grAt',0);if(Date.now()-at<3*864e5)return;
+(()=>{if(!SALES||store.get('ownerKey',false))return;const k=store.get('grKey',null);if(!k)return;const at=store.get('grAt',0);if(Date.now()-at<3*864e5)return;
   grVerify(k).then(ok=>{if(ok){store.set('grAt',Date.now());}else{S.premium=false;store.set('premium',false);store.set('grKey',null);location.reload();}}).catch(()=>{if(Date.now()-at>14*864e5){S.premium=false;store.set('premium',false);}});})();
 
 /* ---------- share links (#lat,lon,zoom,layer) ---------- */
