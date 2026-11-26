@@ -1242,7 +1242,7 @@ $('premium').addEventListener('click',e=>{if(e.target===$('premium')||e.target.c
 $('premBtn').onclick=openPremium;
 /* ---------- Premium via Gumroad (license key) ---------- */
 const GR_URL='https://halewoodsystems.gumroad.com/l/windrova-premium',GR_PID='fkWVzHnsXv4o39gpvn-LHg==';
-const IN_APP=(()=>{try{if(document.referrer.startsWith('android-app://'))sessionStorage.setItem('inapp','1');return sessionStorage.getItem('inapp')==='1';}catch(e){return false;}})();
+const IN_APP=/WindrovaApp\//.test(navigator.userAgent); // Android app (WebView): no outside payment buttons, Google Play rule
 async function grVerify(key){const r=await fetch('https://api.gumroad.com/v2/licenses/verify',{method:'POST',body:new URLSearchParams({product_id:GR_PID,license_key:key,increment_uses_count:'false'})});
   if(r.status>=500)throw new Error('net');const j=await r.json().catch(()=>({}));const p=j.purchase||{};
   return !!(j.success&&!p.refunded&&!p.chargebacked&&!p.disputed&&!p.subscription_ended_at&&!p.subscription_failed_at);}
