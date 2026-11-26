@@ -1233,9 +1233,9 @@ function openPremium(){
     <div class="pb"><img src="logo.svg" width="34" height="34" alt=""><h3>Windrova <b>Premium</b></h3></div><p>${t('premiumSub')}</p></div>
   <div class="pfeat">${['pfE','pfL','pfQ2','pf1','pf14','pfW'].map(k=>`<div><svg viewBox="0 0 24 24">${PF_ICONS[k]}</svg><span>${t(k)}</span></div>`).join('')}</div>
   ${S.premium?`<div class="pfoot"><div class="btn">${t('active')}</div></div>`:`
-  ${IN_APP?'':`<div class="plans"><div class="plan best ${PAYSEL==='y'?'sel':''}" data-plan="y"><span class="tag">${t('bestValue')}</span><div class="nm">${t('planYear')}</div><div class="pr">${eur(19.99)} <small>${t('perYear')}</small></div><div class="sub">${eur(1.67)} ${t('perMonth')}</div></div>
+  ${IN_APP&&!PLAY_BUY?'':`<div class="plans"><div class="plan best ${PAYSEL==='y'?'sel':''}" data-plan="y"><span class="tag">${t('bestValue')}</span><div class="nm">${t('planYear')}</div><div class="pr">${eur(19.99)} <small>${t('perYear')}</small></div><div class="sub">${eur(1.67)} ${t('perMonth')}</div></div>
   <div class="plan ${PAYSEL==='m'?'sel':''}" data-plan="m"><div class="nm">${t('planMonth')}</div><div class="pr">${eur(2.49)} <small>${t('perMonth')}</small></div><div class="sub">&nbsp;</div></div></div>`}
-  <div class="pfoot"><a class="btn" href="https://buy.stripe.com/14AcMY4rr24U6Pqec0dUY02" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;background:var(--panel2);color:var(--ink);border:1px solid var(--line)">❤️ ${t('donate')}</a>${SALES?`${IN_APP?'':`<button class="btn" data-buy>${t('upgrade')}</button><p>🔒 ${t('securePay')}</p>`}<p><a href="#" data-havekey style="color:inherit;text-decoration:underline">${t('haveKey')}</a></p><div id="keyBox" style="display:none;margin-top:6px"><input id="keyIn" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" autocomplete="off" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font:inherit;box-sizing:border-box"><button class="btn" data-activate style="margin-top:8px">${t('activateKey')}</button><p id="keyMsg"></p></div>`:`<button class="btn" disabled style="opacity:.8;cursor:default">${t('upgrade')}</button><p>${t('comingSoon')}</p>`}<p style="margin-top:4px;opacity:.75">${t('madeBy')} Halewood Systems</p></div>`}`;
+  <div class="pfoot">${IN_APP?'':`<a class="btn" href="https://buy.stripe.com/14AcMY4rr24U6Pqec0dUY02" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;background:var(--panel2);color:var(--ink);border:1px solid var(--line)">❤️ ${t('donate')}</a>`}${SALES?`${IN_APP?(PLAY_BUY?`<button class="btn" data-buy>${t('upgrade')}</button><p>🔒 Google Play</p>`:''):`<button class="btn" data-buy>${t('upgrade')}</button><p>🔒 ${t('securePay')}</p>`}<p><a href="#" data-havekey style="color:inherit;text-decoration:underline">${t('haveKey')}</a></p><div id="keyBox" style="display:none;margin-top:6px"><input id="keyIn" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" autocomplete="off" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font:inherit;box-sizing:border-box"><button class="btn" data-activate style="margin-top:8px">${t('activateKey')}</button><p id="keyMsg"></p></div>`:`<button class="btn" disabled style="opacity:.8;cursor:default">${t('upgrade')}</button><p>${t('comingSoon')}</p>`}<p style="margin-top:4px;opacity:.75">${t('madeBy')} Halewood Systems</p></div>`}`;
   $('precard').className='card glass pcard';$('premium').classList.add('show');
 }
 $('premium').addEventListener('click',e=>{if(e.target===$('premium')||e.target.closest('[data-x]'))$('premium').classList.remove('show');});
@@ -1243,6 +1243,11 @@ $('premBtn').onclick=openPremium;
 /* ---------- Premium via Gumroad (license key) ---------- */
 const GR_URL='https://halewoodsystems.gumroad.com/l/windrova-premium',GR_PID='fkWVzHnsXv4o39gpvn-LHg==';
 const IN_APP=/WindrovaApp\//.test(navigator.userAgent); // Android app (WebView): no outside payment buttons, Google Play rule
+if(IN_APP&&document.getElementById('donBtn'))document.getElementById('donBtn').remove(); // no outside payments inside the Play app
+const PLAY_BUY=IN_APP&&!!(window.WindrovaApp&&WindrovaApp.buy)&&(!WindrovaApp.canBuy||WindrovaApp.canBuy()); // app 1.2+: Google Play Billing
+window.wrPlay=active=>{ // called by the Android app with the Play subscription state
+  if(active){if(!store.get('playSub',false)||!S.premium){store.set('playSub',true);store.set('premium',true);if(!S.premium){S.premium=true;toast('✅ '+t('thanksPrem'),{ms:5000});setTimeout(()=>location.reload(),1500);}}}
+  else if(store.get('playSub',false)){store.set('playSub',false);if(!store.get('grKey',null)){store.set('premium',false);location.reload();}}};
 async function grVerify(key){const r=await fetch('https://api.gumroad.com/v2/licenses/verify',{method:'POST',body:new URLSearchParams({product_id:GR_PID,license_key:key,increment_uses_count:'false'})});
   if(r.status>=500)throw new Error('net');const j=await r.json().catch(()=>({}));const p=j.purchase||{};
   return !!(j.success&&!p.refunded&&!p.chargebacked&&!p.disputed&&!p.subscription_ended_at&&!p.subscription_failed_at);}
@@ -1252,7 +1257,7 @@ async function activateKey(key){key=(key||'').trim();const msg=$('keyMsg');if(!k
 $('premium').addEventListener('click',e=>{const pl=e.target.closest('[data-plan]');if(pl){PAYSEL=pl.dataset.plan;openPremium();return;}
   if(e.target.closest('[data-havekey]')){$('keyBox').style.display='block';$('keyIn').focus();return;}
   if(e.target.closest('[data-activate]')){activateKey($('keyIn').value);return;}
-  if(SALES&&e.target.closest('[data-buy]')){window.open(GR_URL+'?wanted=true'+(PAYSEL==='y'?'&recurrence=yearly':''),'_blank','noopener');}});
+  if(SALES&&e.target.closest('[data-buy]')){if(PLAY_BUY){WindrovaApp.buy(PAYSEL==='y'?'yearly':'monthly');return;}window.open(GR_URL+'?wanted=true'+(PAYSEL==='y'?'&recurrence=yearly':''),'_blank','noopener');}});
 (()=>{if(!SALES)return;const k=store.get('grKey',null);if(!k)return;const at=store.get('grAt',0);if(Date.now()-at<3*864e5)return;
   grVerify(k).then(ok=>{if(ok){store.set('grAt',Date.now());}else{S.premium=false;store.set('premium',false);store.set('grKey',null);location.reload();}}).catch(()=>{if(Date.now()-at>14*864e5){S.premium=false;store.set('premium',false);}});})();
 
