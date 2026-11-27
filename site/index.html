@@ -1231,7 +1231,7 @@ const eur=v=>new Intl.NumberFormat(LOC(),{style:'currency',currency:'EUR'}).form
 function openPremium(){
   $('precard').innerHTML=`<div class="phero"><button class="x" data-x aria-label="${t('close')}">×</button>
     <div class="pb"><img src="logo.svg" width="34" height="34" alt=""><h3>Windrova <b>Premium</b></h3></div><p>${t('premiumSub')}</p></div>
-  <div class="pfeat">${['pfE','pfL','pfQ2','pf1','pf14','pfW'].map(k=>`<div><svg viewBox="0 0 24 24">${PF_ICONS[k]}</svg><span>${t(k)}</span></div>`).join('')}</div>
+  <div class="pfeat">${['pfL','pfQ2','pf1','pf14','pfW'].map(k=>`<div><svg viewBox="0 0 24 24">${PF_ICONS[k]}</svg><span>${t(k)}</span></div>`).join('')}</div>
   ${S.premium?`<div class="pfoot"><div class="btn">${t('active')}</div></div>`:`
   ${IN_APP&&!PLAY_BUY?'':`<div class="plans"><div class="plan best ${PAYSEL==='y'?'sel':''}" data-plan="y"><span class="tag">${t('bestValue')}</span><div class="nm">${t('planYear')}</div><div class="pr">${eur(19.99)} <small>${t('perYear')}</small></div><div class="sub">${eur(1.67)} ${t('perMonth')}</div></div>
   <div class="plan ${PAYSEL==='m'?'sel':''}" data-plan="m"><div class="nm">${t('planMonth')}</div><div class="pr">${eur(2.49)} <small>${t('perMonth')}</small></div><div class="sub">&nbsp;</div></div></div>`}
@@ -1302,11 +1302,10 @@ function drawModels(){
   const ks=Object.keys(MODELS).filter(k=>S.metas[k]);const box=$('models');
   if(ks.length<2){box.style.display='none';return;}
   box.style.display='flex';
-  box.innerHTML=ks.map(k=>`<button data-m="${k}" class="${k===S.model?'on':''}" aria-pressed="${k===S.model}">${MODELS[k][0]}${k!=='gfs'&&!S.premium?'<svg class="cr" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></svg>':''}</button>`).join('');
+  box.innerHTML=ks.map(k=>`<button data-m="${k}" class="${k===S.model?'on':''}" aria-pressed="${k===S.model}">${MODELS[k][0]}</button>`).join('');
 }
 function switchModel(k){
   if(k===S.model||!S.metas[k])return;
-  if(k!=='gfs'&&!S.premium)return openPremium();
   const tNow=S.meta?stepTime(S.idx):Date.now()/1000;
   S.model=k;store.set('model',k);S.meta=S.metas[k];drawModels();
   if(!layerOK(LAYERS[S.layer])){S.layer='wind';store.set('layer','wind');drawLegend();}
