@@ -421,9 +421,10 @@ if(gl){
 in vec2 p;out vec2 uv;void main(){uv=p*0.5+0.5;gl_Position=vec4(p,0.,1.);}`;
   const fs=`#version 300 es
 precision highp float;
-uniform sampler2D A;uniform sampler2D B;uniform sampler2D R;
+uniform sampler2D A;uniform sampler2D B;uniform sampler2D R;uniform sampler2D A2;uniform sampler2D B2;uniform float fr;
 uniform vec2 tl;uniform float ws;uniform vec2 sz;uniform int mode;uniform vec2 rng;uniform vec2 vr;uniform float sc;uniform float sq;uniform float bl;
-float tap(vec2 c){if(bl<=0.)return texture(A,c).r;vec2 d=vec2(bl/720.,bl/361.);float s=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){float w=float((2-abs(i))*(2-abs(j)));s+=texture(A,c+vec2(i,j)*d).r*w;}return s/16.;}
+float ta(vec2 c){return mix(texture(A,c).r,texture(A2,c).r,fr);}
+float tap(vec2 c){if(bl<=0.)return ta(c);vec2 d=vec2(bl/720.,bl/361.);float s=0.;for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){float w=float((2-abs(i))*(2-abs(j)));s+=ta(c+vec2(i,j)*d)*w;}return s/16.;}
 in vec2 uv;out vec4 o;
 const float PI=3.141592653589793;
 void main(){
@@ -433,7 +434,7 @@ void main(){
   float lat=degrees(atan(sinh(n)));
   vec2 c=vec2((mod(lon,360.)*2.+.5)/720.,((90.-lat)*2.+.5)/361.);
   float qa=tap(c),val;
-  if(mode==1){float a=mix(rng.x,rng.y,qa),b=mix(rng.x,rng.y,texture(B,c).r);val=length(vec2(a,b))*sc;}
+  if(mode==1){float a=mix(rng.x,rng.y,qa),b=mix(rng.x,rng.y,mix(texture(B,c).r,texture(B2,c).r,fr));val=length(vec2(a,b))*sc;}
   else if(mode==2){float q=qa*sq;val=q*q*sc;}
   else val=mix(rng.x,rng.y,qa)*sc;
   vec4 col=texture(R,vec2(clamp((val-vr.x)/(vr.y-vr.x),0.,1.),.5));
@@ -444,10 +445,10 @@ void main(){
     prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);
     if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
     gl.useProgram(prog);
-    for(const n of['A','B','R','tl','ws','sz','mode','rng','vr','sc','sq','bl'])U[n]=gl.getUniformLocation(prog,n);
+    for(const n of['A','B','R','A2','B2','fr','tl','ws','sz','mode','rng','vr','sc','sq','bl'])U[n]=gl.getUniformLocation(prog,n);
     const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
     const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-    gl.uniform1i(U.A,0);gl.uniform1i(U.B,1);gl.uniform1i(U.R,2);
+    gl.uniform1i(U.A,0);gl.uniform1i(U.B,1);gl.uniform1i(U.R,2);gl.uniform1i(U.A2,3);gl.uniform1i(U.B2,4);gl.uniform1f(U.fr,0);
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL,gl.NONE);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
   }catch(e){console.error(e);prog=null;}
 }
@@ -517,8 +518,9 @@ async function showStep(i){
         for(let i=0;i<n;i++){if(D.q[i*4]===0)continue;const to=(D.a[i]+180)*Math.PI/180,sp=Math.min(14,Math.max(3,Pd.a[i]))*0.9;fu[i]=Math.sin(to)*sp;fv[i]=Math.cos(to)*sp;}
         D.fu=fu;D.fv=fv;}
       S.cur.fu=D.fu;S.cur.fv=D.fv;}
-    S.cur.p=pi>=0?arr[pi]:null;drawField();drawCities();drawIso();drawLegend();
-    const nx=m.steps[i+1];if(nx!=null&&allowed(i+1))need.forEach(v=>loadVar(v,nx));
+    S.cur.p=pi>=0?arr[pi]:null;S.nx=null;S.loaded=i;drawField();drawCities();drawIso();drawLegend();
+    const nx=m.steps[i+1];if(nx!=null&&allowed(i+1)){const a2=await Promise.all([uN,vN,'t',...(xN!=='wind'&&xN!=='t'?[xN]:[])].map(v=>loadVar(v,nx)));
+      if(tok!==showTok)return;S.nx={u:a2[0],v:a2[1],t:a2[2],x:src==='wind'||wave?null:xN==='t'?a2[2]:a2[3]};if(S.f>0)drawField();}
   }catch(e){if(tok===showTok)toast(t('loadErr'));}
 }
 
@@ -540,7 +542,7 @@ function drawField(){
   if(LAYERS[S.layer].tiles){if(prog){gl.viewport(0,0,glc.width,glc.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);}else{const c2=glc.getContext('2d');c2&&c2.clearRect(0,0,glc.width,glc.height);}return;}
   if(prog){
     gl.viewport(0,0,glc.width,glc.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
-    const c=S.cur;if(!c)return;
+    const pro=S.nx&&S.loaded===S.idx-1,c=pro?S.nx:S.cur;if(!c)return;
     const L=EL(),pb=map.getPixelBounds().min;
     gl.uniform2f(U.tl,pb.x,pb.y);gl.uniform1f(U.ws,256*Math.pow(2,map.getZoom()));gl.uniform2f(U.sz,W,H);
     gl.uniform2f(U.vr,L.min,L.max);
@@ -548,9 +550,11 @@ function drawField(){
     if(L.src==='wind'){
       gl.uniform1f(U.bl,0);gl.uniform1i(U.mode,1);gl.uniform2f(U.rng,...S.meta.ranges[c.uN||'u']);gl.uniform1f(U.sc,3.6);
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,c.u.tex);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,c.v.tex);
+      const nx=!pro&&S.nx&&S.f>0?S.nx:c;gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,nx.u.tex);gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,nx.v.tex);gl.uniform1f(U.fr,nx===c?0:S.f);
     }else{
       const D=dec(c.xN||L.src);gl.uniform1f(U.bl,L.blur||0);gl.uniform1i(U.mode,D.mode);gl.uniform1f(U.sc,(L.scale||1)*D.sc);gl.uniform1f(U.sq,D.sq||1);gl.uniform2f(U.rng,...(D.rng||[0,1]));
-      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,c.x.tex);
+      if(!c.x)return;gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,c.x.tex);
+      const nx=!pro&&S.nx&&S.f>0&&S.nx.x?S.nx:c;gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,nx.x.tex);gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,nx.x.tex);gl.uniform1f(U.fr,nx===c?0:S.f);
     }
     gl.drawArrays(gl.TRIANGLES,0,3);
   }else drawFieldCPU();
@@ -777,15 +781,19 @@ const stepTime=i=>S.meta.runTime+S.meta.steps[i]*3600;
 const allowed=i=>S.premium||S.meta.steps[i]<=FREE_HOURS;
 const lastFree=()=>{let k=0;S.meta.steps.forEach((s,i)=>{if(s<=FREE_HOURS)k=i;});return k;};
 const tfmt=ts=>new Date(ts*1000).toLocaleString(LOC(),{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-function setIdx(i){
-  const m=S.meta;if(!m)return;const n=m.steps.length;i=Math.max(0,Math.min(n-1,i));
-  if(!allowed(i)){$('slider').value=S.idx;openPremium();return;}
-  $('slider').value=i;$('slider').style.setProperty('--p',(i/(n-1)*100)+'%');
-  if(!LAYERS[S.layer].tiles)$('tlabel').innerHTML=tfmt(stepTime(i))+` <small>· ${t('model')} ${m.model} ${m.run.slice(8)}z</small>`;
+function setIdx(x){
+  const m=S.meta;if(!m)return;const n=m.steps.length;x=Math.max(0,Math.min(n-1,x));
+  let i=Math.floor(x+1e-6),f=x-i;if(i>=n-1){i=n-1;f=0;}
+  if(!allowed(i)||(f>0&&!allowed(i+1))){if(!allowed(i)){$('slider').value=S.idx;openPremium();return;}f=0;x=i;}
+  $('slider').value=x;$('slider').style.setProperty('--p',(x/(n-1)*100)+'%');
+  const ts=f>0?stepTime(i)+(stepTime(i+1)-stepTime(i))*f:stepTime(i),tr=Math.round(ts/3600)*3600;
+  if(!LAYERS[S.layer].tiles)$('tlabel').innerHTML=tfmt(tr)+` <small>· ${t('model')} ${m.model} ${m.run.slice(8)}z</small>`;
+  S.f=f;S.x=x;
+  if(S.loaded===i&&S.idx===i&&S.cur){drawField();return;}
   showStep(i);
 }
 function setupTimeline(){
-  const m=S.meta,n=m.steps.length;$('slider').max=n-1;
+  const m=S.meta,n=m.steps.length;$('slider').max=n-1;$('slider').step='any';S.loaded=-1;
   const now=Date.now()/1000;let best=0;for(let i=0;i<n;i++)if(Math.abs(stepTime(i)-now)<Math.abs(stepTime(best)-now))best=i;
   let html='';for(let i=1;i<n;i++){const d=new Date(stepTime(i)*1000),p=new Date(stepTime(i-1)*1000);if(d.toDateString()!==p.toDateString())html+=`<span style="left:${i/(n-1)*100}%">${d.toLocaleDateString(LOC(),{weekday:'short',day:'numeric'})}</span>`;}
   $('days').innerHTML=html;
@@ -793,11 +801,17 @@ function setupTimeline(){
   setIdx(best);
 }
 $('slider').addEventListener('input',e=>setIdx(+e.target.value));
+$('slider').addEventListener('change',e=>{const m=S.meta;if(!m)return;const x=+e.target.value,i=Math.floor(x),h=(m.steps[i+1]??m.steps[i])-m.steps[i];if(h>0){const k=Math.round((x-i)*h)/h;setIdx(i+k);}});
 $('play').addEventListener('click',()=>{
-  if(S.playing){clearInterval(S.playing);S.playing=null;$('play').innerHTML=PLAY;return;}
+  if(S.playing){S.playing=null;$('play').innerHTML=PLAY;return;}
   $('play').innerHTML=PAUSE;
   if(LAYERS[S.layer].tiles){$('play').innerHTML=PLAY;return;}
-  S.playing=setInterval(()=>{const lim=S.premium?S.meta.steps.length-1:lastFree();setIdx(S.idx+1>lim?0:S.idx+1);},700);
+  let last=performance.now();S.playing=1;
+  const tick=now=>{if(!S.playing)return;const dt=Math.min(100,now-last);last=now;const lim=S.premium?S.meta.steps.length-1:lastFree();
+    let x=(S.x??S.idx)+dt/1400;if(x>lim)x=0;
+    const i=Math.floor(x);if(S.loaded!==i&&S.idx===i){requestAnimationFrame(tick);return;}
+    setIdx(x);requestAnimationFrame(tick);};
+  requestAnimationFrame(tick);
 });
 
 /* ---------- toast ---------- */
