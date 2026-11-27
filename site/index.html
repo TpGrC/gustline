@@ -1251,7 +1251,7 @@ window.wrPlay=active=>{ // called by the Android app with the Play subscription 
 async function grVerify(key){const r=await fetch('https://api.gumroad.com/v2/licenses/verify',{method:'POST',body:new URLSearchParams({product_id:GR_PID,license_key:key,increment_uses_count:'false'})});
   if(r.status>=500)throw new Error('net');const j=await r.json().catch(()=>({}));const p=j.purchase||{};
   return !!(j.success&&!p.refunded&&!p.chargebacked&&!p.disputed&&!p.subscription_ended_at&&!p.subscription_failed_at);}
-const OWNER_KEYS=['c72764e495017683e4ed63ecf1596557ba3937161e080f5d216d947feb464f4a']; // SHA-256 of keys that give Premium for good (owner / family)
+const OWNER_KEYS=['c72764e495017683e4ed63ecf1596557ba3937161e080f5d216d947feb464f4a','316228b9f85abcd316d37a6c0d496217a6bf30adb8bf0f673514a2ee963915d9']; // SHA-256 of keys that give Premium for good (owner / family)
 const sha256=async x=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(x)))].map(b=>b.toString(16).padStart(2,'0')).join('');
 async function activateKey(key){key=(key||'').trim();const msg=$('keyMsg');if(!key)return;msg.textContent=t('loading');
   try{if(OWNER_KEYS.includes(await sha256(key.toUpperCase()))){S.premium=true;store.set('premium',true);store.set('ownerKey',true);$('premium').classList.remove('show');toast('✅ '+t('thanksPrem'),{ms:6000});setTimeout(()=>location.reload(),1800);return;}}catch(e){}
