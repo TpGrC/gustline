@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>(function(){var n=0;function show(m){if(n++>3)return;try{var d=document.getElementById('errbox');if(!d){d=document.createElement('div');d.id='errbox';d.style.cssText='position:fixed;left:8px;bottom:90px;z-index:99999;max-width:70%;background:#b00020;color:#fff;font:12px/1.35 sans-serif;padding:8px 10px;border-radius:8px;white-space:pre-wrap';d.onclick=function(){d.remove()};(document.body||document.documentElement).appendChild(d)}d.textContent+=(d.textContent?'\n':'')+'Error: '+m+' | '+navigator.userAgent.replace(/.*(Chrome\/[\d.]+).*/,'$1')}catch(e){}}window.addEventListener('error',function(e){show((e.message||'')+' @'+(e.lineno||''))});window.addEventListener('unhandledrejection',function(e){show('promise: '+(e.reason&&e.reason.message||e.reason))})})();</script>
+
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d1117">
@@ -407,7 +409,7 @@ function updateGeoLines(){const res=map.getZoom()>=5?'10m':'50m';if(geoCur===res
 map.on('zoomend',updateGeoLines);updateGeoLines();updateLand();
 
 let W=0,H=0,DPR=1,lastBounds=null;
-const glc=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('wx'));
+let glc=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('wx'));
 const pc=L.DomUtil.create('canvas','',map.getPane('flow')),pctx=pc.getContext('2d');
 const lc=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('labels')),lctx=lc.getContext('2d');
 const ic=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('lines')),ictx=ic.getContext('2d');
@@ -561,6 +563,7 @@ function drawField(){
 }
 let cpuCtx=null;
 function drawFieldCPU(){
+  if(gl&&!glc._sw){const n=L.DomUtil.create('canvas','leaflet-zoom-animated',map.getPane('wx'));n.width=glc.width;n.height=glc.height;n.style.cssText=glc.style.cssText;glc.remove();glc=n;glc._sw=1;}
   if(!cpuCtx){const c=document.createElement('canvas');cpuCtx=c.getContext('2d');}
   const ctx=glc.getContext('2d');if(!ctx)return;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,glc.width,glc.height);
   if(!S.cur)return;const L=LAYERS[S.layer],st=4,cw=Math.ceil(W/st)+1,ch=Math.ceil(H/st)+1,cv=cpuCtx.canvas;cv.width=cw;cv.height=ch;
